@@ -1,0 +1,273 @@
+---
+title: "5_ScenarioAnalysis"
+author: "Billy Geary"
+date: "20/11/2021" 
+output: html_document
+---
+
+```{r, setup}
+library(brms)
+library(piecewiseSEM)
+library(tidybayes)
+library(tidyverse)
+```
+
+# Read in SEM for Prediction
+```{r}
+data = read.csv("~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Clean/transect.sem.data.Nov2021.csv")
+load("~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Clean/best.sem.fit.Rdata")
+```
+# Baseline Scenario
+```{r}
+newdata = data.frame(BaitIntensity.Transect.Twelve = mean(data$BaitIntensity.Transect.Twelve),
+                     mean.smNDVI = mean(data$mean.smNDVI),
+                     prop.pasture.1km = mean(data$prop.pasture.1km),
+                     DistCentroidPasture = mean(data$DistCentroidPasture),
+                     valleys.prop.area = mean(data$valleys.prop.area),
+                     prop_moderate_transect = mean(data$prop_moderate_transect),
+                     tsf.cat.shannon.diversity = mean(data$tsf.cat.shannon.diversity),
+                     prop.burnttwice.500m.transect = mean(data$prop.burnttwice.500m.transect),
+                     prop_severe_transect = mean(data$prop_severe_transect),
+                     tsh.shannon.diversity = mean(data$tsh.shannon.diversity),
+                     ndvi.monthly.anomaly = mean(data$ndvi.monthly.anomaly),
+                     Woylie_Abundance = mean(data$Woylie_Abundance),
+                     Chuditch_Abundance = mean(data$Chuditch_Abundance),
+                     Phase = NA)
+
+
+fauna_base <-fitted(best_sem, newdata=newdata,
+             resp = c("WoylieAbundance","ChuditchAbundance", "KoomalAbundance", "QuendaPA"), nsamples = 1000, 
+             summary = FALSE, re_formula = NULL)
+
+#to minimize excess uncertainty
+fauna_base_out <- data.frame(Woylie = fauna_base[, ,1],
+                         Chuditch = fauna_base[, ,2],
+                         Koomal = fauna_base[, ,3],
+                         Quenda = fauna_base[, ,4],
+                         Scenario = "Base")
+```
+
+
+# Scenario 1: Reduction in Rainfall Anomaly
+50% below average
+```{r}
+# Step 1 - Rainfaill Anomaly -> NDVI anomaly
+newdata = data.frame(rain.anomaly.twelve =-0.2, ndvi.monthly.anomaly=NA, Phase = NA)
+ndvi_pred <- fitted(best_sem, newdata=newdata,
+             resp = "scalendvimonthlyanomaly", nsamples = 1000, 
+             summary = FALSE, re_formula = NULL)
+
+# Step 2 - NDVI anomaly -> Animal abundance
+newdata2 <- expand.grid(rain.anomaly.twelve = newdata$rain.anomaly.twelve, 
+                        ndvi.monthly.anomaly = as.vector(ndvi_pred))
+
+newdata2 = newdata2 %>% mutate(BaitIntensity.Transect.Twelve = mean(data$BaitIntensity.Transect.Twelve),
+                               mean.smNDVI = mean(data$mean.smNDVI),
+                               prop.pasture.1km = mean(data$prop.pasture.1km),
+                               DistCentroidPasture = mean(data$DistCentroidPasture),
+                               valleys.prop.area = mean(data$valleys.prop.area),
+                               prop_moderate_transect = mean(data$prop_moderate_transect),
+                               tsf.cat.shannon.diversity = mean(data$tsf.cat.shannon.diversity),
+                               prop.burnttwice.500m.transect = mean(data$prop.burnttwice.500m.transect),
+                               prop_severe_transect = mean(data$prop_severe_transect),
+                               tsh.shannon.diversity = mean(data$tsh.shannon.diversity), 
+                               Chuditch_Abundance = mean(data$Chuditch_Abundance),
+                               Woylie_Abundance = mean(data$Woylie_Abundance),
+                               Phase = NA)
+
+fauna_pred <- fitted(best_sem, newdata=newdata2,
+             resp = c("WoylieAbundance","ChuditchAbundance", "KoomalAbundance", "QuendaPA"), nsamples = 1000, 
+             summary = FALSE, re_formula = NULL)
+
+#to minimize excess uncertainty
+fauna_rain_out <- data.frame(Woylie = as.matrix(diag(fauna_pred[, ,1])),
+                         Chuditch = as.matrix(diag(fauna_pred[, ,2])),
+                         Koomal = as.matrix(diag(fauna_pred[, ,3])),
+                         Quenda = as.matrix(diag(fauna_pred[, ,4])),
+                         Scenario = "Low Rainfall")
+
+combined_scenarios = rbind(fauna_base_out, fauna_rain_out)
+
+```
+
+# Scenario 2: Increase in Moderate Fire
+```{r}
+newdata2 = data.frame(prop_moderate_transect = 0.5,
+                      prop_severe_transect = mean(data$prop_severe_transect),
+                      prop.burnttwice.500m.transect = mean(data$prop.burnttwice.500m.transect),
+                      tsf.cat.shannon.diversity = mean(data$tsf.cat.shannon.diversity),
+                      BaitIntensity.Transect.Twelve = mean(data$BaitIntensity.Transect.Twelve),
+                      mean.smNDVI = mean(data$mean.smNDVI),
+                      prop.pasture.1km = mean(data$prop.pasture.1km),
+                      DistCentroidPasture = mean(data$DistCentroidPasture),
+                      valleys.prop.area = mean(data$valleys.prop.area),
+                      ndvi.monthly.anomaly = mean(data$ndvi.monthly.anomaly),
+                      tsh.shannon.diversity = mean(data$tsh.shannon.diversity),
+                      Woylie_Abundance = mean(data$Woylie_Abundance),
+                      Chuditch_Abundance = mean(data$Chuditch_Abundance),
+                      Phase = NA)
+
+fauna_pred <- fitted(best_sem, newdata=newdata2,
+             resp = c("WoylieAbundance","ChuditchAbundance", "KoomalAbundance", "QuendaPA"), nsamples = 1000, 
+             summary = FALSE, re_formula = NULL)
+
+
+#to minimize excess uncertainty
+fauna_modfire_out <- data.frame(Woylie = as.matrix(fauna_pred[, ,1]),
+                         Chuditch = as.matrix(fauna_pred[, ,2]),
+                         Koomal = as.matrix(fauna_pred[, ,3]),
+                         Quenda = as.matrix(fauna_pred[, ,4]),
+                         Scenario = "Moderate Fire")
+
+```
+
+# Scenario 3: Increase in Severe Fire
+```{r}
+newdata2 = data.frame(prop_moderate_transect = mean(data$prop_moderate_transect),
+                      prop_severe_transect = 0.5,
+                      prop.burnttwice.500m.transect = mean(data$prop.burnttwice.500m.transect),
+                      tsf.cat.shannon.diversity = mean(data$tsf.cat.shannon.diversity),
+                      BaitIntensity.Transect.Twelve = mean(data$BaitIntensity.Transect.Twelve),
+                      mean.smNDVI = mean(data$mean.smNDVI),
+                      prop.pasture.1km = mean(data$prop.pasture.1km),
+                      DistCentroidPasture = mean(data$DistCentroidPasture),
+                      valleys.prop.area = mean(data$valleys.prop.area),
+                      ndvi.monthly.anomaly = mean(data$ndvi.monthly.anomaly),
+                      tsh.shannon.diversity = mean(data$tsh.shannon.diversity),
+                      Woylie_Abundance = mean(data$Woylie_Abundance),
+                      Chuditch_Abundance = mean(data$Chuditch_Abundance),
+                      Phase = NA)
+
+fauna_pred <- fitted(best_sem, newdata=newdata2,
+             resp = c("WoylieAbundance","ChuditchAbundance", "KoomalAbundance", "QuendaPA"), nsamples = 1000, 
+             summary = FALSE, re_formula = NULL)
+
+
+#to minimize excess uncertainty
+fauna_sevfire_out <- data.frame(Woylie = as.matrix(fauna_pred[, ,1]),
+                         Chuditch = as.matrix(fauna_pred[, ,2]),
+                         Koomal = as.matrix(fauna_pred[, ,3]),
+                         Quenda = as.matrix(fauna_pred[, ,4]),
+                         Scenario = "Severe Fire")
+
+```
+
+# Scenario 4: Increase in Repeat Fire
+```{r}
+newdata2 = data.frame(prop_moderate_transect = mean(data$prop_moderate_transect),
+                      prop_severe_transect = mean(data$prop_severe_transect),
+                      prop.burnttwice.500m.transect = 0.5,
+                      tsf.cat.shannon.diversity = mean(data$tsf.cat.shannon.diversity),
+                      BaitIntensity.Transect.Twelve = mean(data$BaitIntensity.Transect.Twelve),
+                      mean.smNDVI = mean(data$mean.smNDVI),
+                      prop.pasture.1km = mean(data$prop.pasture.1km),
+                      DistCentroidPasture = mean(data$DistCentroidPasture),
+                      valleys.prop.area = mean(data$valleys.prop.area),
+                      ndvi.monthly.anomaly = mean(data$ndvi.monthly.anomaly),
+                      tsh.shannon.diversity = mean(data$tsh.shannon.diversity),
+                      Woylie_Abundance = mean(data$Woylie_Abundance),
+                      Chuditch_Abundance = mean(data$Chuditch_Abundance),
+                      Phase = NA)
+
+fauna_pred <- fitted(best_sem, newdata=newdata2,
+             resp = c("WoylieAbundance","ChuditchAbundance", "KoomalAbundance", "QuendaPA"), nsamples = 1000, 
+             summary = FALSE, re_formula = NULL)
+
+
+#to minimize excess uncertainty
+fauna_freqfire_out <- data.frame(Woylie = as.matrix(fauna_pred[, ,1]),
+                         Chuditch = as.matrix(fauna_pred[, ,2]),
+                         Koomal = as.matrix(fauna_pred[, ,3]),
+                         Quenda = as.matrix(fauna_pred[, ,4]),
+                         Scenario = "Fire Frequency")
+
+```
+# Scenario 5: Low Rainfall + Severe Fire
+```{r}
+
+# Step 1 - Rainfaill Anomaly -> NDVI anomaly
+newdata = data.frame(rain.anomaly.twelve =-0.2, ndvi.monthly.anomaly=NA, Phase = NA)
+ndvi_pred <- fitted(best_sem, newdata=newdata,
+             resp = "scalendvimonthlyanomaly", nsamples = 1000, 
+             summary = FALSE, re_formula = NULL)
+
+# Step 2 - NDVI anomaly -> Animal abundance
+newdata2 <- expand.grid(rain.anomaly.twelve = newdata$rain.anomaly.twelve, 
+                        ndvi.monthly.anomaly = as.vector(ndvi_pred))
+
+newdata2 = newdata2 %>% mutate(prop_moderate_transect = mean(data$prop_moderate_transect),
+                      prop_severe_transect = 0.5,
+                      prop.burnttwice.500m.transect = mean(data$prop.burnttwice.500m.transect),
+                      tsf.cat.shannon.diversity = mean(data$tsf.cat.shannon.diversity),
+                      BaitIntensity.Transect.Twelve = mean(data$BaitIntensity.Transect.Twelve),
+                      mean.smNDVI = mean(data$mean.smNDVI),
+                      prop.pasture.1km = mean(data$prop.pasture.1km),
+                      DistCentroidPasture = mean(data$DistCentroidPasture),
+                      valleys.prop.area = mean(data$valleys.prop.area),
+                      tsh.shannon.diversity = mean(data$tsh.shannon.diversity),
+                      Woylie_Abundance = mean(data$Woylie_Abundance),
+                      Chuditch_Abundance = mean(data$Chuditch_Abundance),
+                      Phase = NA)
+
+fauna_pred <- fitted(best_sem, newdata=newdata2,
+             resp = c("WoylieAbundance","ChuditchAbundance", "KoomalAbundance", "QuendaPA"), nsamples = 1000, 
+             summary = FALSE, re_formula = NULL)
+
+
+#to minimize excess uncertainty
+#to minimize excess uncertainty
+fauna_droughtsevfire_out <- data.frame(Woylie = as.matrix(diag(fauna_pred[, ,1])),
+                         Chuditch = as.matrix(diag(fauna_pred[, ,2])),
+                         Koomal = as.matrix(diag(fauna_pred[, ,3])),
+                         Quenda = as.matrix(diag(fauna_pred[, ,4])),
+                         Scenario = "Low Rainfall + Severe Fire")
+
+```
+
+# Plots
+
+```{r}
+combined_scenarios = rbind(fauna_base_out, 
+                           fauna_rain_out, 
+                           fauna_modfire_out, 
+                           fauna_sevfire_out, 
+                           fauna_freqfire_out,
+                           fauna_droughtsevfire_out)
+
+scenario_plot = function(input.data, species,ylab, ymax){
+  plot.data = input.data
+  spp = species
+  pal = viridisLite::viridis(6)
+  plot.data = plot.data %>% as.data.frame() %>% pivot_longer(cols=1:4, names_to="Species") %>% 
+    mutate(Scenario = fct_relevel(Scenario,   "Low Rainfall + Severe Fire","Fire Frequency", "Severe Fire", "Moderate Fire", "Low Rainfall", "Base")) %>%
+    filter(Species == spp)
+  median.base = median(filter(plot.data, Scenario=="Base")$value)
+  plot = plot.data %>%
+    ggplot(aes(y=value, x=Scenario, fill=Scenario)) + 
+    geom_hline(yintercept = median.base, linetype = 'dashed') + 
+    ggdist::stat_halfeye(adjust = .5, width = .6,.width = 0,justification = -.2,point_colour = NA, alpha=0.7) + 
+    geom_boxplot(width = .15, outlier.shape = NA, alpha = 0.7) +
+    gghalves::geom_half_point(aes(colour = Scenario), side = "l", range_scale = .4,alpha = .3) +
+    coord_cartesian(xlim = c(1.2, NA), clip = "off") +
+    scale_colour_manual(values = pal) + scale_fill_manual(values = pal) +
+    ylab(ylab) + xlab("Scenario") +
+    theme_cowplot() + theme(legend.position = "none") + coord_flip()
+  plot
+}
+
+a = scenario_plot(combined_scenarios, "Woylie", "Predicted Abundance")
+b = scenario_plot(combined_scenarios, "Chuditch", "Predicted Abundance")
+c = scenario_plot(combined_scenarios, "Koomal", "Predicted Abundance")
+d = scenario_plot(combined_scenarios, "Quenda", "Predicted Occurrence")
+
+cowplot::plot_grid(a,b,c,d,labels=c("a) Woylie", "b) Chuditch", "c) Koomal", "d) Quenda"), align='h')
+
+
+```
+
+```{r}
+z=ggplot(data) + geom_smooth(aes(x=PeriodID, y = rain.anomaly.twelve)) + facet_wrap(~TRANSECT)
+
+y=ggplot(data) + geom_smooth(aes(x=rain.anomaly.twelve, y = Woylie_Abundance), method = 'lm')
+
+```

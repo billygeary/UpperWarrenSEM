@@ -1,0 +1,620 @@
+---
+title: "SEM Upper Warren"
+author: "Billy Geary"
+date: "22/01/2021"
+output: html_document
+---
+
+## Setup
+```{r message=FALSE, warning=FALSE}
+library(brms)
+library(piecewiseSEM)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(modelr)
+library(tidybayes)
+
+data = read.csv("~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Clean/transect.sem.data.Nov2021.csv")
+
+```
+
+## Summary of trapping sessions
+```{r}
+
+trap.sessions = data %>% 
+  mutate(GroupDate = ifelse(lubridate::month(TRAP_START) > 6, paste0("01/07/",lubridate::year(TRAP_START)),
+                            paste0("01/01/",lubridate::year(TRAP_START)))) %>%
+  mutate(GroupDate = as.Date(GroupDate, format = "%d/%m/%Y")) %>%
+  group_by(TRANSECT, GroupDate) %>% summarise()
+
+ggplot(trap.sessions) + geom_tile(aes(x=GroupDate, y=TRANSECT)) + theme_bw() + xlab("Year")
+
+(length(trap.sessions$TRANSECT) * 4 * 50)
+```
+## Transform/clean data
+
+```{r}
+data$Phase = ifelse(data$year > 1999 & data$year < 2005, "2000-2004",
+                    ifelse(data$year >2004 & data$year < 2010, "2005-2009",
+                           ifelse(data$year > 2009 & data$year < 2015, "2010-2014",
+                                  ifelse(data$year > 2014 & data$year <2020, "2015-2019", NA))))
+```
+
+## Total captures for each species
+```{r}
+(woyle_total = sum(data$Woylie_Caps))
+(chuditch_total = sum(data$Chuditch_Caps))
+(koomal_total = sum(data$Koomal_Caps))
+(quenda_total = sum(data$Quenda_Caps))
+
+```
+
+## Look at correlations between data
+```{r}
+M <- cor(data %>%
+           dplyr::select(JulianDate, month, year, Trap.Effort,  14:54), use='complete.obs', method='pearson')           
+# Find pairs that shouldnt be in the same model
+cors = as.data.frame(as.table(M))
+
+corplot = ggplot(cors) + geom_tile(aes(x=Var1, y=Var2, fill=Freq)) + scale_fill_viridis_c() +
+  theme(axis.text.x = element_text(angle = 90))
+
+high.cors = cors %>% filter(Freq < -0.7 | Freq >0.7) %>% filter(Freq !=1) %>%
+  group_by(Var1) %>% summarise(Variables=paste(Var2, collapse=", "))
+
+```
+
+## Plot the abundance changes over time
+
+```{r}
+load("~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Processing/transect_bestmodels_abundancesforSEM_23072021.RData")
+date.lookup = data %>% select(PeriodID, TRAP_START) %>% mutate(TRAP_START=as.Date(TRAP_START)) %>%
+  mutate(PlotDate = lubridate::floor_date(TRAP_START, unit='halfyear')) %>%
+  group_by(PeriodID, PlotDate) %>% summarise() %>% ungroup %>% mutate(PeriodID = as.character(PeriodID))
+         
+
+woyliedat = abundance.list$woylie; woyliedat = left_join(woyliedat, date.lookup, by="PeriodID")
+chuditchdat = abundance.list$chuditch; chuditchdat = left_join(chuditchdat, date.lookup, by="PeriodID")
+koomaldat = abundance.list$koomal; koomaldat = left_join(koomaldat, date.lookup, by="PeriodID")
+
+woylieab = woyliedat %>% 
+  ggplot() + geom_ribbon(aes(x=PlotDate, ymin = Lower, ymax = Upper), alpha = 0.4) + 
+  geom_line(aes(x=PlotDate, y = Abundance)) + facet_wrap(~TRANSECT) + theme_bw() + 
+    theme(plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()) +
+  theme(plot.margin = unit(c(1,0.2,0,0.2), "cm"))
+
+chuditchab = chuditchdat %>% 
+  ggplot() + geom_ribbon(aes(x=PlotDate, ymin = Lower, ymax = Upper), alpha = 0.4) + 
+  geom_line(aes(x=PlotDate, y = Abundance)) + facet_wrap(~TRANSECT) + theme_bw() + 
+    theme(plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()) +
+  theme(plot.margin = unit(c(1,0.2,0,0.2), "cm"))
+
+koomalab = koomaldat %>% 
+  ggplot() + geom_ribbon(aes(x=PlotDate, ymin = Lower, ymax = Upper), alpha = 0.4) + 
+  geom_line(aes(x=PlotDate, y = Abundance)) + facet_wrap(~TRANSECT) + theme_bw() + 
+    theme(plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()) +
+  theme(plot.margin = unit(c(1,0.2,0,0.2), "cm"))
+
+quendaab =  data %>% mutate(PeriodID = as.character(PeriodID)) %>% left_join(date.lookup, by="PeriodID") %>%
+  ggplot() + geom_line(aes(x=PlotDate, y = Quenda_Caps)) + facet_wrap(~TRANSECT) + 
+  ylab("Quenda Captures") + theme_bw() + 
+  theme(plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()) +
+  theme(plot.margin = unit(c(1,0.2,0,0.2), "cm"))
+
+cowplot::plot_grid(woylieab,chuditchab, koomalab,quendaab, 
+                   labels = c("a) Woylie", "b) Chuditch", "c) Koomal", "d) Quenda"),
+                   ncol = 2)
+
+```
+
+## Look at predictors over time
+```{r}
+str(data)
+ggplot(data) + geom_point(aes(x=PeriodID,y=rain.anomaly.twelve)) + 
+  geom_smooth(aes(x=PeriodID,y=rain.anomaly.twelve)) + 
+  facet_wrap(~TRANSECT)
+
+ggplot(data) + geom_point(aes(x=PeriodID,y=ndvi.monthly.anomaly)) + 
+  geom_smooth(aes(x=PeriodID,y=ndvi.monthly.anomaly)) + 
+  facet_wrap(~TRANSECT)
+
+ggplot(data) + geom_point(aes(x=PeriodID,y=prop_moderate_transect)) + 
+  geom_smooth(aes(x=PeriodID,y=prop_moderate_transect)) + 
+  facet_wrap(~TRANSECT)
+
+ggplot(data) + geom_point(aes(x=PeriodID,y=tsf.cat.shannon.diversity )) + 
+  geom_smooth(aes(x=PeriodID,y=tsf.cat.shannon.diversity )) + 
+  facet_wrap(~TRANSECT)
+
+ggplot(data) + geom_point(aes(x=PeriodID,y=mean.tsf.transect)) + 
+  geom_smooth(aes(x=PeriodID,y=mean.tsf.transect)) + 
+  facet_wrap(~TRANSECT)
+
+ggplot(data) + geom_point(aes(x=PeriodID,y=prop.great10yrs.unburnt.500m.transect)) + 
+  geom_smooth(aes(x=PeriodID,y=prop.great10yrs.unburnt.500m.transect)) + 
+  facet_wrap(~TRANSECT)
+
+ggplot(data) + geom_point(aes(y=Woylie_Abundance,x=ndvi.monthly.anomaly)) + 
+  geom_smooth(aes(y=Woylie_Abundance,x=ndvi.monthly.anomaly),method='lm') + 
+  facet_wrap(~BaitIntensity.Transect.Twelve)
+
+
+```
+
+# Fit alternate SEMs using BRMS
+### Null Models
+```{r message=FALSE, warning=FALSE}
+# Fauna
+woylie.m <- bf(Woylie_Abundance ~ 1 , family='gamma')
+chuditch.m <- bf(Chuditch_Abundance ~ 1 , family='gamma')
+koomal.m <- bf(Koomal_Abundance ~ 1 , family='gamma')
+quenda.m <- bf(Quenda_PA ~ 1 , family='binomial')
+### Fire
+recentfire.m <- bf(prop_moderate_transect ~ 1 , family='beta')
+multiburn.m <- bf(prop.burnttwice.500m.transect ~ 1 , family='beta')
+firediv.m<- bf(tsf.cat.shannon.diversity ~ 1 , family='gaussian')
+unburnt.m <- bf(prop.great10yrs.unburnt.500m.transect ~ 1, family='gaussian')
+severe.m <- bf(prop_severe_transect ~ 1, family='gaussian')
+
+### Baiting
+bait.m<- bf(scale(BaitIntensity.Transect.Twelve) ~ 1 , family='gaussian')
+### Productivity
+ndvi.m <- bf(scale(mean.smNDVI) ~ 1 , family='gaussian')
+ndvianom.m <- bf(scale(ndvi.monthly.anomaly) ~ 1 , family='gaussian')
+# SEM
+sem.fit.m <- brm(woylie.m + chuditch.m + koomal.m + quenda.m + 
+                   recentfire.m + multiburn.m + firediv.m + unburnt.m + severe.m +
+                   bait.m + ndvi.m + set_rescor(FALSE), data=data, cores=3, chains = 3, iter=4000)
+
+# Fauna
+woylie.m0 <- bf(Woylie_Abundance ~ 1 + (1|Phase), family='gamma')
+chuditch.m0 <- bf(Chuditch_Abundance ~ 1 + (1|Phase), family='gamma')
+koomal.m0 <- bf(Koomal_Abundance ~ 1 + (1|Phase), family='gamma')
+quenda.m0 <- bf(Quenda_PA ~ 1 + (1|Phase), family='binomial')
+### Fire
+recentfire.m0 <- bf(prop_moderate_transect ~ 1 + (1|Phase), family='gaussian')
+multiburn.m0 <- bf(prop.burnttwice.500m.transect ~ 1 + (1|Phase), family='gaussian')
+firediv.m0<- bf(tsf.cat.shannon.diversity ~ 1 + (1|Phase), family='gaussian')
+unburnt.m0 <- bf(prop.great10yrs.unburnt.500m.transect ~ 1 + (1|Phase), family='gaussian')
+severe.m0 <- bf(prop_severe_transect ~ 1 + (1|Phase), family='gaussian')
+
+### Baiting
+bait.m0<- bf(scale(BaitIntensity.Transect.Twelve) ~ 1 + (1|Phase), family='gaussian')
+### Productivity
+ndvi.m0 <- bf(scale(mean.smNDVI) ~ 1 + (1|Phase), family='gaussian')
+ndvianom.m0 <- bf(scale(ndvi.monthly.anomaly) ~ 1 + (1|Phase), family='gaussian')
+# SEM
+sem.fit.m0 <- brm(woylie.m0 + chuditch.m0 + koomal.m0 + quenda.m0 + 
+                    recentfire.m0 + multiburn.m0 + firediv.m0 + unburnt.m0 + bait.m0 + severe.m0 +
+                    ndvi.m0 + ndvianom.m0 + set_rescor(FALSE), data=data, cores=3, chains = 3, iter=4000)
+
+
+```
+### Model 1
+m1 = Harvest Diversity & NDVI
+```{r message=FALSE, warning=FALSE}
+# Fauna
+woylie.m1 <- bf(Woylie_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(mean.smNDVI) + scale(ndvi.monthly.anomaly) + 
+                                   scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                   scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + 
+                                   scale(prop.burnttwice.500m.transect) + scale(prop_severe_transect) + 
+                                   scale(tsh.shannon.diversity) +
+                                   scale(Chuditch_Abundance) + (1|Phase), family='gamma')
+                  
+chuditch.m1 <- bf(Chuditch_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(mean.smNDVI) + scale(ndvi.monthly.anomaly) + 
+                                       scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                       scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + 
+                                       scale(prop.burnttwice.500m.transect) + scale(prop_severe_transect) + 
+                                       scale(tsh.shannon.diversity) +
+                                       (1|Phase), family='gamma')
+
+koomal.m1 <- bf(Koomal_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(mean.smNDVI) + scale(ndvi.monthly.anomaly) + 
+                                   scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                   scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + 
+                                   scale(prop.burnttwice.500m.transect) + scale(prop_severe_transect) + 
+                                   scale(tsh.shannon.diversity) +
+                                   scale(Woylie_Abundance) + scale(Chuditch_Abundance) + (1|Phase), family='gamma')
+
+quenda.m1 <- bf(Quenda_PA ~ scale(BaitIntensity.Transect.Twelve) + scale(mean.smNDVI) + scale(ndvi.monthly.anomaly) + 
+                            scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                            scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + 
+                            scale(prop.burnttwice.500m.transect) + scale(prop_severe_transect) + 
+                            scale(tsh.shannon.diversity) +
+                            scale(Chuditch_Abundance) + (1|Phase), family='binomial')
+### Fire
+recentfire.m1 <- bf(prop_moderate_transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(DistCentroidPasture) +
+                                                   scale(Distance.Assets) + scale(RoadLength1km) + (1|Phase), family=zero_inflated_beta(link="probit"))
+
+unburnt.m1 <- bf(prop.great10yrs.unburnt.500m.transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) +
+                                                           scale(DistCentroidPasture) + scale(Distance.Assets) + 
+                                                           scale(RoadLength1km) + (1|Phase), family=zero_one_inflated_beta(link="probit"))
+
+multiburn.m1 <- bf(prop.burnttwice.500m.transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) +
+                                                           scale(DistCentroidPasture) + scale(Distance.Assets) + 
+                                                           scale(RoadLength1km) + (1|Phase), family=zero_inflated_beta(link="probit"))
+
+firediv.m1 <- bf(tsf.cat.shannon.diversity ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(RoadLength1km) + 
+                                             scale(DistCentroidPasture) + scale(Distance.Assets) +
+                                             (1|Phase), family='gamma')
+
+severe.m1 <- bf(prop_severe_transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(RoadLength1km) + 
+                                             scale(DistCentroidPasture) + scale(Distance.Assets) +
+                                             (1|Phase), family=zero_inflated_beta(link="probit"))
+
+### Baiting
+bait.m1<- bf(scale(BaitIntensity.Transect.Twelve) ~ scale(prop.pasture.1km) + scale(DistCentroidPasture) + scale(RoadLength1km) + 
+                                                    (1|Phase), family='gaussian')
+### Productivity
+ndvi.m1 <- bf(scale(mean.smNDVI) ~ scale(mean.annual.precip) + scale(valleys.prop.area) + (1|Phase), family='gaussian')
+ndvianom.m1 <- bf(scale(ndvi.monthly.anomaly) ~ scale(rain.anomaly.twelve) + (1|Phase), family='gaussian')
+
+# SEM 6487.7
+sem.fit.m1 <- brm(woylie.m1 + chuditch.m1 + koomal.m1 + quenda.m1 + 
+                    recentfire.m1 + firediv.m1 + unburnt.m1 + multiburn.m1 + severe.m1 +
+                     bait.m1 + ndvi.m1 + ndvianom.m1 + set_rescor(FALSE), 
+                  data=data, cores=3, chains = 3, iter=4000)
+```
+
+### Model 2
+m2 = Recent Fire, Recent Harvesting
+```{r message=FALSE, warning=FALSE}
+# Fauna
+woylie.m2 <- bf(Woylie_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(mean.smNDVI) + scale(ndvi.monthly.anomaly) + 
+                                   scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                   scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + 
+                                   scale(prop.burnttwice.500m.transect) + scale(prop_severe_transect) + 
+                                   scale(prop.20yrsharvest.500m.transect) +
+                                   scale(Chuditch_Abundance) + (1|Phase), family='gamma')
+                  
+chuditch.m2 <- bf(Chuditch_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(mean.smNDVI) + scale(ndvi.monthly.anomaly) + 
+                                       scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                       scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + 
+                                       scale(prop.burnttwice.500m.transect) + scale(prop_severe_transect) + 
+                                       scale(prop.20yrsharvest.500m.transect) +
+                                       (1|Phase), family='gamma')
+
+koomal.m2 <- bf(Koomal_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(mean.smNDVI) + scale(ndvi.monthly.anomaly) + 
+                                   scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                   scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + 
+                                   scale(prop.burnttwice.500m.transect) + scale(prop_severe_transect) + 
+                                   scale(prop.20yrsharvest.500m.transect) +
+                                   scale(Woylie_Abundance) + scale(Chuditch_Abundance) + (1|Phase), family='gamma')
+
+quenda.m2 <- bf(Quenda_PA ~ scale(BaitIntensity.Transect.Twelve) + scale(mean.smNDVI) + scale(ndvi.monthly.anomaly) + 
+                            scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                            scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + 
+                            scale(prop.burnttwice.500m.transect) + scale(prop_severe_transect) + 
+                            scale(prop.20yrsharvest.500m.transect) +
+                            scale(Chuditch_Abundance) + (1|Phase), family='binomial')
+### Fire
+recentfire.m2 <- bf(prop_moderate_transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(DistCentroidPasture) +
+                                                   scale(Distance.Assets) + scale(RoadLength1km) + (1|Phase), family='gaussian')
+
+unburnt.m2 <- bf(prop.great10yrs.unburnt.500m.transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) +
+                                                           scale(DistCentroidPasture) + scale(Distance.Assets) + 
+                                                           scale(RoadLength1km) + (1|Phase), family='gaussian')
+
+firediv.m2 <- bf(tsf.cat.shannon.diversity ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(RoadLength1km) + 
+                                             scale(DistCentroidPasture) + scale(Distance.Assets) +
+                                             (1|Phase), family='gaussian')
+
+multiburn.m2 <- bf(prop.burnttwice.500m.transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) +
+                                                           scale(DistCentroidPasture) + scale(Distance.Assets) + 
+                                                           scale(RoadLength1km) + (1|Phase), family='gaussian')
+severe.m2 <- bf(prop_severe_transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(RoadLength1km) + 
+                                             scale(DistCentroidPasture) + scale(Distance.Assets) +
+                                             (1|Phase), family='gaussian')
+### Baiting
+bait.m2<- bf(scale(BaitIntensity.Transect.Twelve) ~ scale(prop.pasture.1km) + scale(DistCentroidPasture) + scale(RoadLength1km) + 
+                                                    (1|Phase), family='gaussian')
+### Productivity
+ndvi.m2 <- bf(scale(mean.smNDVI) ~ scale(mean.annual.precip) + scale(valleys.prop.area) + (1|Phase), family='gaussian')
+ndvianom.m2 <- bf(scale(ndvi.monthly.anomaly) ~ scale(rain.anomaly.twelve) + (1|Phase), family='gaussian')
+
+# SEM
+sem.fit.m2 <- brm(woylie.m2 + chuditch.m2 + koomal.m2 + quenda.m2 + 
+                    recentfire.m2 + firediv.m2 + unburnt.m2 + multiburn.m2 + severe.m2 +
+                     bait.m2 + ndvi.m2 + ndvianom.m2 + set_rescor(FALSE), data=data, cores=3, chains = 3, iter=4000)
+```
+### Model 3
+m3 = Harvest Diversity & Road Density
+```{r message=FALSE, warning=FALSE}
+# Fauna
+woylie.m3 <- bf(Woylie_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(RoadLength1km) + scale(ndvi.monthly.anomaly) + 
+                                   scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                   scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + scale(prop.burnttwice.500m.transect) + 
+                                   scale(tsh.shannon.diversity) +
+                                   scale(Chuditch_Abundance) + (1|Phase), family='gamma')
+                  
+chuditch.m3 <- bf(Chuditch_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(RoadLength1km) + scale(ndvi.monthly.anomaly) + 
+                                       scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                       scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + scale(prop.burnttwice.500m.transect) + 
+                                       scale(tsh.shannon.diversity) +
+                                       (1|Phase), family='gamma')
+
+koomal.m3 <- bf(Koomal_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(RoadLength1km) + scale(ndvi.monthly.anomaly) + 
+                                   scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                   scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + scale(prop.burnttwice.500m.transect) + 
+                                   scale(tsh.shannon.diversity) +
+                                   scale(Woylie_Abundance) + scale(Chuditch_Abundance) + (1|Phase), family='gamma')
+
+quenda.m3 <- bf(Quenda_PA ~ scale(BaitIntensity.Transect.Twelve) + scale(RoadLength1km) + scale(ndvi.monthly.anomaly) + 
+                            scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                            scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + scale(prop.burnttwice.500m.transect) + 
+                            scale(tsh.shannon.diversity) +
+                            scale(Chuditch_Abundance) + (1|Phase), family='binomial')
+### Fire
+recentfire.m3 <- bf(prop_moderate_transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(DistCentroidPasture) +
+                                                   scale(Distance.Assets) + scale(RoadLength1km) + (1|Phase), family='gaussian')
+
+unburnt.m3 <- bf(prop.great10yrs.unburnt.500m.transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) +
+                                                           scale(DistCentroidPasture) + scale(Distance.Assets) + 
+                                                           scale(RoadLength1km) + (1|Phase), family='gaussian')
+
+firediv.m3 <- bf(tsf.cat.shannon.diversity ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(RoadLength1km) + 
+                                             scale(DistCentroidPasture) + scale(Distance.Assets) +
+                                             (1|Phase), family='gaussian')
+
+multiburn.m3 <- bf(prop.burnttwice.500m.transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) +
+                                                           scale(DistCentroidPasture) + scale(Distance.Assets) + 
+                                                           scale(RoadLength1km) + (1|Phase), family='gaussian')
+
+### Baiting
+bait.m3<- bf(scale(BaitIntensity.Transect.Twelve) ~ scale(prop.pasture.1km) + scale(DistCentroidPasture) + scale(RoadLength1km) + 
+                                                    (1|Phase), family='gaussian')
+### Productivity
+ndvi.m3 <- bf(scale(mean.smNDVI) ~ scale(mean.annual.precip) + scale(valleys.prop.area) + (1|Phase), family='gaussian')
+ndvianom.m3 <- bf(scale(ndvi.monthly.anomaly) ~ scale(rain.anomaly.twelve) +(1|Phase), family='gaussian')
+
+# SEM
+sem.fit.m3 <- brm(woylie.m3 + chuditch.m3 + koomal.m3 + quenda.m3 + 
+                    recentfire.m3 + firediv.m3 + unburnt.m3 + multiburn.m3 +
+                     bait.m3 + ndvi.m3 + ndvianom.m3 + set_rescor(FALSE), data=data, cores=3, chains = 3, iter=4000)
+```
+
+### Model 4
+
+```{r message=FALSE, warning=FALSE}
+# Fauna
+woylie.m4 <- bf(Woylie_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(RoadLength1km) + scale(ndvi.monthly.anomaly) + 
+                                   scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                   scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + scale(prop.burnttwice.500m.transect) + 
+                                   scale(prop.20yrsharvest.500m.transect) +
+                                   scale(Chuditch_Abundance) + (1|Phase), family='gamma')
+                  
+chuditch.m4 <- bf(Chuditch_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(RoadLength1km) + scale(ndvi.monthly.anomaly) + 
+                                       scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                       scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + scale(prop.burnttwice.500m.transect) + 
+                                       scale(prop.20yrsharvest.500m.transect) +
+                                       (1|Phase), family='gamma')
+
+koomal.m4 <- bf(Koomal_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(RoadLength1km) + scale(ndvi.monthly.anomaly) + 
+                                   scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                   scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + scale(prop.burnttwice.500m.transect) + 
+                                   scale(prop.20yrsharvest.500m.transect) +
+                                   scale(Woylie_Abundance) + scale(Chuditch_Abundance) + (1|Phase), family='gamma')
+
+quenda.m4 <- bf(Quenda_PA ~ scale(BaitIntensity.Transect.Twelve) + scale(RoadLength1km) + scale(ndvi.monthly.anomaly) + 
+                            scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                            scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + scale(prop.burnttwice.500m.transect) + 
+                            scale(prop.20yrsharvest.500m.transect) +
+                            scale(Chuditch_Abundance) + (1|Phase), family='binomial')
+### Fire
+recentfire.m4 <- bf(prop_moderate_transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(DistCentroidPasture) +
+                                                   scale(Distance.Assets) + scale(RoadLength1km) + (1|Phase), family='gaussian')
+
+unburnt.m4 <- bf(prop.great10yrs.unburnt.500m.transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) +
+                                                           scale(DistCentroidPasture) + scale(Distance.Assets) + 
+                                                           scale(RoadLength1km) + (1|Phase), family='gaussian')
+
+firediv.m4 <- bf(tsf.cat.shannon.diversity ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(RoadLength1km) + 
+                                             scale(DistCentroidPasture) + scale(Distance.Assets) +
+                                             (1|Phase), family='gaussian')
+
+multiburn.m4 <- bf(prop.burnttwice.500m.transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) +
+                                                           scale(DistCentroidPasture) + scale(Distance.Assets) + 
+                                                           scale(RoadLength1km) + (1|Phase), family='gaussian')
+### Baiting
+bait.m4<- bf(scale(BaitIntensity.Transect.Twelve) ~ scale(prop.pasture.1km) + scale(DistCentroidPasture) + scale(RoadLength1km) + 
+                                                    (1|Phase), family='gaussian')
+### Productivity
+ndvi.m4 <- bf(scale(mean.smNDVI) ~ scale(mean.annual.precip) + scale(valleys.prop.area) + (1|Phase), family='gaussian')
+ndvianom.m4 <- bf(scale(ndvi.monthly.anomaly) ~ scale(rain.anomaly.twelve) + (1|Phase), family='gaussian')
+
+# SEM
+sem.fit.m4 <- brm(woylie.m4 + chuditch.m4 + koomal.m4 + quenda.m4 + 
+                    recentfire.m4 + firediv.m4 + unburnt.m4 + multiburn.m4 +
+                     bait.m4 + ndvi.m4 + ndvianom.m4 + set_rescor(FALSE), data=data, cores=3, chains = 3, iter=4000)
+```
+
+# Model Selection
+```{r message=FALSE, warning=FALSE}
+waic(sem.fit.m, sem.fit.m0, sem.fit.m1, sem.fit.m2, sem.fit.m3, sem.fit.m4)
+
+bayes_R2(sem.fit.m1)
+best_sem = sem.fit.m1
+
+save(best_sem, file="~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Clean/best.sem.fit.Rdata")
+```
+# Plot Relationships
+### Plot Coefficients 
+```{r}
+best_sem = sem.fit.m1
+sem.vars = c(get_variables(sem.fit.m1), get_variables(sem.fit.m2))
+woylie.vars = c(sem.vars[grep("b_WoylieAbundance_scale",sem.vars)], sem.vars[grep("bsp_WoylieAbundance",sem.vars)])
+chuditch.vars = c(sem.vars[grep("b_ChuditchAbundance_scale",sem.vars)], sem.vars[grep("bsp_ChuditchAbundance",sem.vars)])
+koomal.vars = c(sem.vars[grep("b_KoomalAbundance_scale",sem.vars)], sem.vars[grep("bsp_KoomalAbundance",sem.vars)])
+quenda.vars =  c(sem.vars[grep("b_QuendaPA_scale",sem.vars)], sem.vars[grep("bsp_QuendaPA",sem.vars)])
+recentfire.vars =  sem.vars[grep("b_propmoderatetransect_scale",sem.vars)]
+multiburn.vars = sem.vars[grep("b_propburnttwice500mtransect_scale",sem.vars)]
+firediv.vars = sem.vars[grep("b_tsfcatshannondiversity_scale",sem.vars)]
+unburnt.vars =  sem.vars[grep("b_propgreat10yrsunburnt500mtransect_scale",sem.vars)]
+severe.vars =  sem.vars[grep("b_propseveretransect_scale",sem.vars)]
+bait.vars = sem.vars[grep("b_scaleBaitIntensityTransectTwelve_scale",sem.vars)]
+ndvi.vars = sem.vars[grep("b_scalemeansmNDVI_scale",sem.vars)]
+ndvianom.vars = sem.vars[grep("b_scalendvimonthlyanomaly_scale",sem.vars)]
+
+var.lookup = data.frame(.variable = unique(c(woylie.vars, chuditch.vars, koomal.vars, quenda.vars, recentfire.vars, multiburn.vars, firediv.vars, severe.vars,
+                                             unburnt.vars, bait.vars, ndvi.vars, ndvianom.vars)))
+var.lookup = var.lookup %>% 
+  mutate(.variable = gsub("b_WoylieAbundance_scale","",.variable)) %>%
+  mutate(.variable = gsub("bsp_WoylieAbundance_","",.variable)) %>%
+  mutate(.variable = gsub("b_ChuditchAbundance_scale","",.variable)) %>%
+  mutate(.variable = gsub("bsp_ChuditchAbundance_","",.variable)) %>%
+  mutate(.variable = gsub("b_KoomalAbundance_scale","",.variable)) %>%
+  mutate(.variable = gsub("bsp_KoomalAbundance_","",.variable)) %>%
+  mutate(.variable = gsub("b_QuendaPA_scale","",.variable)) %>%
+  mutate(.variable = gsub("bsp_QuendaPA_","",.variable)) %>%
+  mutate(.variable = gsub("b_propmoderatetransect_scale","",.variable)) %>%
+  mutate(.variable = gsub("b_propburnttwice500mtransect_scale","",.variable)) %>%
+  mutate(.variable = gsub("b_tsfcatshannondiversity_scale","",.variable)) %>%
+  mutate(.variable = gsub("b_propgreat10yrsunburnt500mtransect_scale","",.variable)) %>%
+  mutate(.variable = gsub("b_propseveretransect_scale","",.variable)) %>%
+  mutate(.variable = gsub("b_scaleBaitIntensityTransectTwelve_scale","",.variable)) %>%
+  mutate(.variable = gsub("b_scalemeansmNDVI_scale","",.variable)) %>%
+  mutate(.variable = gsub("b_scalendvimonthlyanomaly_scale","",.variable)) %>% distinct(.variable)
+
+var.lookup$Label = c("Bait Intensity", "Mean NDVI", "NDVI Anomaly", "Prop Pasture (1km)", "Distance to Pasture", "Prop Valley Habitat",
+                     "Prop Moderately Burnt (3 yrs)", "Fire Age Diversity", "Prop Burnt Twice (10 yrs)","Prop Severely Burnt (3 yrs)", 
+                     "Harvest Age Diversity", "Chuditch Abundance", "Prop <20yrs Post Harvest",  "Woylie Abundance",
+                     "Distance to Assets", "Road Density (1km)", "Mean Precipitation", "Precip Anomaly (last 12 months)") 
+
+var.lookup$Group = c("Predation", "Resources", "Resources", "Fragmentation", "Fragmentation", "Resources", "Fire", "Fire", "Fire","Fire", "Harvesting", "Species Interactions", "Harvesting", "Species Interactions",  "Fragmentation", "Fragmentation", "Resources", "Resources")
+
+woylie.coef = best_sem %>%
+  tidy_draws() %>%
+  gather_variables() %>%
+  filter(.variable %in% woylie.vars) %>%
+  mutate(.variable = gsub("b_WoylieAbundance_scale","",.variable)) %>%
+  mutate(.variable = gsub("bsp_WoylieAbundance_","",.variable)) %>%
+  left_join(var.lookup, by='.variable')
+
+chuditch.coef = best_sem %>%
+  tidy_draws() %>%
+  gather_variables() %>%
+  filter(.variable %in% chuditch.vars) %>%
+  mutate(.variable = gsub("b_ChuditchAbundance_scale","",.variable)) %>%
+  mutate(.variable = gsub("bsp_ChuditchAbundance_","",.variable)) %>%
+  left_join(var.lookup, by='.variable')
+
+koomal.coef = best_sem %>%
+  tidy_draws() %>%
+  gather_variables() %>%
+  filter(.variable %in% koomal.vars) %>%
+  mutate(.variable = gsub("b_KoomalAbundance_scale","",.variable)) %>%
+  mutate(.variable = gsub("bsp_KoomalAbundance_","",.variable)) %>%
+  left_join(var.lookup, by='.variable') 
+
+quenda.coef = best_sem %>%
+  tidy_draws() %>%
+  gather_variables() %>%
+  filter(.variable %in% quenda.vars) %>%
+  mutate(.variable = gsub("b_QuendaPA_scale","",.variable)) %>%
+  mutate(.variable = gsub("bsp_QuendaPA_","",.variable)) %>%
+  left_join(var.lookup, by='.variable')
+
+recentfire.coef = best_sem %>%
+  tidy_draws() %>%
+  gather_variables() %>%
+  filter(.variable %in% recentfire.vars) %>%
+  mutate(.variable = gsub("b_propmoderatetransect_scale","",.variable)) %>%
+  left_join(var.lookup, by='.variable')
+
+multiburn.coef = best_sem %>%
+  tidy_draws() %>%
+  gather_variables() %>%
+  filter(.variable %in% multiburn.vars) %>%
+  mutate(.variable = gsub("b_propburnttwice500mtransect_scale","",.variable)) %>%
+  left_join(var.lookup, by='.variable')
+
+firediv.coef = best_sem %>%
+  tidy_draws() %>%
+  gather_variables() %>%
+  filter(.variable %in% firediv.vars) %>%
+  mutate(.variable = gsub("b_tsfcatshannondiversity_scale","",.variable)) %>%
+  left_join(var.lookup, by='.variable')
+
+unburnt.coef = best_sem %>%
+  tidy_draws() %>%
+  gather_variables() %>%
+  filter(.variable %in% unburnt.vars) %>%
+  mutate(.variable = gsub("b_propgreat10yrsunburnt500mtransect_scale","",.variable))  %>%
+  left_join(var.lookup, by='.variable') 
+
+severe.coef = best_sem %>%
+  tidy_draws() %>%
+  gather_variables() %>%
+  filter(.variable %in% severe.vars) %>%
+  mutate(.variable = gsub("b_propseveretransect_scale","",.variable))  %>%
+  left_join(var.lookup, by='.variable') 
+
+bait.coef = best_sem %>%
+  tidy_draws() %>%
+  gather_variables() %>%
+  filter(.variable %in% bait.vars) %>%
+  mutate(.variable = gsub("b_scaleBaitIntensityTransectTwelve_scale","",.variable)) %>%
+  left_join(var.lookup, by='.variable') 
+
+ndvi.coef = best_sem %>%
+  tidy_draws() %>%
+  gather_variables() %>%
+  filter(.variable %in% ndvi.vars) %>%
+  mutate(.variable = gsub("b_scalemeansmNDVI_scale","",.variable))  %>%
+  left_join(var.lookup, by='.variable') 
+
+ndvianom.coef = best_sem %>%
+  tidy_draws() %>%
+  gather_variables() %>%
+  filter(.variable %in% ndvianom.vars) %>%
+  mutate(.variable = gsub("b_scalendvimonthlyanomaly_scale","",.variable))  %>%
+  left_join(var.lookup, by='.variable') 
+
+plot.estimates = function(coef.data){
+  plot.dat = coef.data
+  pal = RColorBrewer::brewer.pal(9, "GnBu")[5:9]
+  plot.dat$Group = factor(plot.dat$Group, levels = c("Fire", "Fragmentation", "Harvesting", "Predation", "Resources", "Species Interactions"))
+  label.order = plot.dat %>% mutate(Label = as.factor(Label)) %>% group_by(Group, Label) %>% 
+    summarise() %>% ungroup() %>% dplyr::select(Label) 
+  plot.out = plot.dat %>%
+    mutate(Label = factor(Label, levels = label.order$Label)) %>%
+    ggplot(aes(y = Label, x =.value, fill=Group)) +
+    stat_interval() + stat_pointinterval(.width = c(0.80, 0.95)) + geom_vline(xintercept=0,linetype='dashed') + 
+    scale_color_manual(values = pal) +
+    theme_cowplot() +  theme(axis.text=element_text(size=10), axis.title=element_text(size=12)) + 
+    xlab("Posterior Distributions") + ylab("Predictor") + theme(legend.position = "none")
+  plot.out
+}
+
+a = plot.estimates(woylie.coef)
+b = plot.estimates(chuditch.coef)
+c = plot.estimates(koomal.coef)
+d = plot.estimates(quenda.coef)
+
+e = plot.estimates(recentfire.coef)
+f = plot.estimates(multiburn.coef)
+g = plot.estimates(firediv.coef)
+h = plot.estimates(unburnt.coef)
+i = plot.estimates(severe.coef)
+
+j = plot.estimates(bait.coef)
+k = plot.estimates(ndvi.coef)
+l = plot.estimates(ndvianom.coef)
+```
+
+### Plot Grids 
+```{r}
+cowplot::plot_grid(a,b,c,d,labels=c("a) Woylie", "b) Chuditch", "c) Koomal", "d) Quenda"), align='h')
+
+cowplot::plot_grid(e,f,g,h,i,j,k,l, labels=c("e) Recent Fire", "f) MultiBurn","g) Fire Diversity", "h) >10 Years Unburnt", "i) Severe Fire","j) Baiting", "k) Productivity (NDVI)", "l) NDVI Anomaly"), ncol=3, align ='hv', hjust=0)
+
+
+```

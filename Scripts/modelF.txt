@@ -1,0 +1,67 @@
+
+model {
+  # Priors
+  # Model for expected initial abundance
+  for(i in 1:M){
+    alpha.lam[i] ~ dnorm(mu.alpha.lam, tau.alpha.lam)
+  }
+  mu.alpha.lam <- log(mean.lambda)
+  mean.lambda ~ dunif(0, 50) # Mean of lambda
+  tau.alpha.lam <- pow(sd.alpha.lam, -2)
+  sd.alpha.lam ~ dnorm(0, 2) I(0.001,)    # Site-level OD
+  
+  # Model for ’immigration-free’ population growth rate
+  for(i in 1:M){
+    for(t in 1:(T-1)){
+      alpha.gam[i,t] ~ dnorm(mu.alpha.gam, tau.alpha.gam)
+    }
+  }
+  mu.alpha.gam <- log(mean.gamma)
+  mean.gamma ~ dunif(0.9, 1.1) # Mean of gamma
+  tau.alpha.gam <- pow(sd.alpha.gam, -2)
+  sd.alpha.gam ~ dnorm(0, 100) I(0.001,)   # Site/ year-level OD
+  
+  ## Detectability model
+  alpha.p ~ dnorm(mu.alpha.p, tau.alpha.p)
+  mu.alpha.p <- logit(mean.p)
+  mean.p ~ dunif(0, 1) # Mean of p
+  tau.alpha.p <- pow(sd.alpha.p, -2)
+  sd.alpha.p ~ dnorm(0, 10) I(0.001,)      # Site/ year-level OD
+  for (v in 1:1){
+    beta.p[v] ~ dnorm(0, 0.001) # Covariate coefficient prior
+  }
+  
+  # Model for random immigration
+  for(i in 1:M){
+    for(t in 1:(T-1)){
+    log(rho[i,t]) <- logrho[i,t]
+    logrho[i,t] ~ dnorm(0, tau.rho)
+    }
+  }
+  tau.rho <- pow(sd.rho, -2)
+  sd.rho ~ dnorm(0, 0.5)I(0.001,)  # Half-normal prior for sd
+
+  # Likelihood
+  # State process
+  for(i in 1:M){
+    # Initial conditions
+    N[i,1] ~ dpois(lambda[i])
+    log(lambda[i]) <- loglam[i]
+    loglam[i] <- alpha.lam[i]
+    
+    
+    # Transition model
+    for(t in 2:T){
+      N[i,t] ~ dpois(N[i,t-1] * gamma[i,t-1] + rho[i,t-1])
+      log(gamma[i,t-1]) <- loggam[i,t-1]
+      loggam[i,t-1] <- alpha.gam[i,t-1]
+    }
+    
+    # Observation process
+    for(t in 1:T){
+      C[i,t] ~ dbin(p[i,t], N[i,t])
+      logit(p[i,t]) <- lp[i,t]
+      lp[i,t] <- alpha.p + beta.p[1]*Effort[i,t]
+    }
+  }
+}

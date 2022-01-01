@@ -1,0 +1,851 @@
+---
+title: "3b_Compile Covariates for Upper Warren Transect Scale"
+author: "Billy Geary"
+date: "18/07/2021"
+output: html_document
+---
+
+## SETUP
+
+```{r setup, include=FALSE}
+library(sf)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lubridate)
+library(sf)
+library(raster)
+library(fasterize)
+library(leaflet)
+library(exactextractr)
+
+std.crs = st_crs(32750)
+```
+
+## Project Mask
+
+```{r}
+project.area = read_sf("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Boundaries/WarrenJarrah_projectboundary.shp")
+project.area = st_transform(project.area, std.crs)
+
+r = raster(extent(project.area), res = 50)
+
+mask = fasterize(project.area, r,field='OBJECTID', fun = 'count', background = NA)
+
+crs(mask) <- "+proj=utm +zone=50 +south +datum=WGS84 +units=m +no_defs"
+
+```
+
+
+## Transect Shapes
+```{r}
+trap_points = read_sf("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Trapping/trap_points_compiled.shp")
+
+# Buffer around each transect by 200m, 500m and 1km 
+transect_buffer_200m = trap_points %>% st_transform(std.crs) %>% st_buffer(dist=200) %>% group_by(TRANSECT) %>% summarise()
+transect_buffer_500m = trap_points %>% st_transform(std.crs) %>% st_buffer(dist=500) %>% group_by(TRANSECT) %>% summarise()
+transect_buffer_550m = trap_points %>% st_transform(std.crs) %>% st_buffer(dist=550) %>% group_by(TRANSECT) %>% summarise()
+transect_buffer_1km = trap_points %>% st_transform(std.crs) %>% st_buffer(dist=1000) %>% group_by(TRANSECT) %>% summarise()
+transect_buffer_5km = trap_points %>% st_transform(std.crs) %>% st_buffer(dist=5000) %>% group_by(TRANSECT) %>% summarise()
+
+# Make data frame of transect
+transects = st_drop_geometry(transect_buffer_200m)
+```
+
+# Build Covariate Table
+```{r}
+trap.points = read.csv("~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Processing/trap.data.csv")
+covariates.table = trap.points %>% 
+  drop_na(Start) %>% dplyr::select(-X.1) %>%
+  mutate(month = month(Start), year = year(Start)) %>% 
+  rename("TRAP_START" = Start) %>% mutate(TRAP_START = as.Date(TRAP_START)) %>%
+  
+  filter(!(TRANSECT == "Keninup" & Session %in% c(36,37,37,38,39,41,42,44,45,53))) %>% # Filter out extra Keninup Sessions
+  filter(!(TRANSECT == "Warrup" & Session == 53)) %>% # Filter out extra Warrup Session
+  filter(!(TRANSECT == 'Moopinup' & Session == 69)) %>%
+  
+  
+  group_by(TRANSECT, TRAP_START, PeriodID, JulianDate, month, year) %>%
+  summarise(Trap.Effort = sum(Trap.Effort),
+            Woylie_Caps = sum(Woylie_Caps),
+            Chuditch_Caps = sum(Chuditch_Caps),
+            Quenda_Caps = sum(Quenda_Caps),
+            Koomal_Caps = sum(Koomal_Caps))
+
+covariates.table$Round = paste0(month(covariates.table$TRAP_START,abbr = TRUE,label=TRUE), "_",covariates.table$year)
+
+trap.dates = unique(covariates.table$TRAP_START)
+
+```
+
+## Fire History
+```{r}
+firehistory = read_sf("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/FireHistoryDec18_WarrenJarrah.shp")
+firehistory = st_transform(firehistory, std.crs)
+firehistory$FIH_DATE1 = as.POSIXct(firehistory$FIH_DATE1)
+fire.list = list()
+for (i in 1:length(trap.dates)) {
+  start.date = trap.dates[i]
+  firehistory$TSF = as.numeric(difftime(start.date,firehistory$FIH_DATE1, unit="weeks"))/52.25
+  
+  #time since fire
+  firehistory_temp = subset(firehistory, TSF > 0)
+  tsf_raster = fasterize(firehistory_temp, mask, field="TSF", fun='min')
+  
+  prop.2yrs.500m.transect = exact_extract(tsf_raster, transect_buffer_500m, fun=function(x, coverage_fraction){length(subset(x, x < 3))/length(x)},progress=FALSE)
+  prop.2yrs.1km.transect = exact_extract(tsf_raster, transect_buffer_1km, fun=function(x, coverage_fraction){length(subset(x, x < 3))/length(x)},progress=FALSE)
+  
+  prop.great10yrs.500m.transect = exact_extract(tsf_raster, transect_buffer_500m, fun=function(x, coverage_fraction){length(subset(x, x > 10))/length(x)},progress=FALSE)
+  prop.great10yrs.1km.transect = exact_extract(tsf_raster, transect_buffer_1km, fun=function(x, coverage_fraction){length(subset(x, x > 10))/length(x)},progress=FALSE)
+  
+  prop.great20yrs.500m.transect = exact_extract(tsf_raster, transect_buffer_500m, fun=function(x, coverage_fraction){length(subset(x, x > 20))/length(x)},progress=FALSE)
+  prop.great20yrs.1km.transect = exact_extract(tsf_raster, transect_buffer_1km, fun=function(x, coverage_fraction){length(subset(x, x > 20))/length(x)},progress=FALSE)
+  
+  tsf_category_raster = tsf_raster
+  tsf_category_raster[tsf_category_raster < 3] <- 1
+  tsf_category_raster[tsf_category_raster > 2 & tsf_category_raster < 11] <- 2
+  tsf_category_raster[tsf_category_raster > 10 & tsf_category_raster < 21] <- 3
+  tsf_category_raster[tsf_category_raster > 20] <- 4
+  
+  fireage.cat.diversity = landscapemetrics::sample_lsm(as.integer(tsf_category_raster), y=transect_buffer_500m, what='lsm_l_shdi')
+  tsf.cat.shannon.diversity = fireage.cat.diversity$value
+  
+  firehistory_temp$Dummy = 1
+  firehistory_temp_10years = filter(firehistory_temp, TSF < 11)
+  firecount_raster = fasterize(firehistory_temp_10years, mask, field="Dummy", fun='sum')
+  prop.burnttwice.500m.transect = exact_extract(firecount_raster, transect_buffer_500m, fun=function(x, coverage_fraction){length(subset(x, x > 1))/length(x)},progress=FALSE)
+  prop.burntthree.500m.transect = exact_extract(firecount_raster, transect_buffer_500m, fun=function(x, coverage_fraction){length(subset(x, x > 2))/length(x)},progress=FALSE)
+  
+  
+  fire.data.transect = cbind(transects, start.date, 
+                             prop.2yrs.500m.transect,prop.2yrs.1km.transect,
+                             prop.great10yrs.500m.transect, prop.great10yrs.1km.transect,
+                             prop.great20yrs.500m.transect, prop.great20yrs.1km.transect,
+                             prop.burnttwice.500m.transect, prop.burntthree.500m.transect,
+                             tsf.cat.shannon.diversity)
+
+  fire.list[[as.character(start.date)]] = fire.data.transect
+}
+
+
+fire.covariates = do.call(rbind, fire.list)
+
+fire.covariates = fire.covariates %>% rename("Date" = start.date,
+                                             "prop.2yrsburnt.500m.transect" = prop.2yrs.500m.transect, 
+                                             "prop.2yrsburnt.1km.transect" = prop.2yrs.1km.transect,
+                                             "prop.great10yrs.unburnt.500m.transect"=prop.great10yrs.500m.transect,
+                                             "prop.great10yrs.unburnt.1km.transect"=prop.great10yrs.1km.transect,
+                                             "prop.great20yrs.unburnt.500m.transect"=prop.great20yrs.500m.transect,
+                                             "prop.great20yrs.unburnt.1km.transect"=prop.great20yrs.1km.transect) %>%
+  mutate(TRAP_START = as.Date(Date), Year = year(Date), TRANSECT = gsub("\\s|\\(Universal)","",TRANSECT)) 
+
+## Merge with covariates table
+fire.covariates = fire.covariates %>% 
+  dplyr::select("TRAP_START", "TRANSECT", 
+                "prop.2yrsburnt.500m.transect", "prop.2yrsburnt.1km.transect",
+                "prop.great10yrs.unburnt.500m.transect", "prop.great10yrs.unburnt.1km.transect",
+                "prop.great20yrs.unburnt.500m.transect", "prop.great20yrs.unburnt.1km.transect",
+                "prop.burnttwice.500m.transect","prop.burntthree.500m.transect",
+                "tsf.cat.shannon.diversity")
+
+covariates.table = left_join(covariates.table, fire.covariates, by=c("TRANSECT", "TRAP_START"))
+
+```
+
+## Fire Severity
+```{r}
+# Calculate fire severity statistics for Upper Warren
+mga50 <- "+proj=utm +zone=50 +south +datum=WGS84 +units=m +no_defs"
+firehist <- st_read("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Fire Severity prep/For Analysis/firehistory_upperwarren.shp")%>%
+  st_transform(mga50)
+dates = firehist %>% select(OBJECTID, FIH_DATE1) %>% mutate(OBJECTID = as.character(OBJECTID)) %>% st_drop_geometry()
+
+# Function
+severity_stats = function(polyint, firehist, reference.date, lagyears){
+  # Set up analysis inputs
+  shp = firehist
+  ply = polyint
+  d = as.Date(reference.date, format="%d/%m/%Y")
+  y = lagyears
+
+  # Read in severity layers
+  tlist <- data.frame(name = list.files("~/Dropbox/Upper Warren Fire Severity/CBI_maps", pattern = "tif"),
+                      path = list.files("~/Dropbox/Upper Warren Fire Severity/CBI_maps", pattern = "tif", full=TRUE))
+  tlist <- tlist %>% 
+    mutate(fnum = str_split_fixed(name, "_", 7)[,3]) %>%
+    left_join(dates, by=c('fnum'='OBJECTID'))
+  
+  # Set up output df
+  df.out <- data.frame()
+  
+    pti <- ply # Select transect
+    # Find the fire severity rasters we need
+    int <- st_intersection(pti, shp) # All fires within transect  
+    tifi <- tlist %>% 
+      filter(fnum %in% int$OBJECTID) %>% # Get the relevant fires that intersect
+      filter(FIH_DATE1 < d & FIH_DATE1 > d-lubridate::years(y)) # Get the relvant fires within moving window time period
+    
+    if(length(tifi$path) > 0){
+      # Create binary map of severity within five years
+      t <- raster(tifi$path[1])
+      t <- mosaic(mask, t, fun=sum)
+
+      if(length(tifi$path) > 1){
+        # If 2 or more fires, loop through all severity layers and create a mosaic of n times severely burnt
+        for (i in 2:length(tifi$path)){
+          ti <- raster(tifi$path[i])
+          
+          t <- mosaic(t, ti, fun = max)
+        }
+      }else{t=t}
+    }else{t=t}
+  
+      # Do polygon specific statsitcs on mosaic
+    df.out = data.frame(Transect = pti$TRANSECT,
+                        Date = d,
+                        interval_years = y,
+                        area_poly = as.numeric(st_area(pti))/10000)
+    
+    df.out = df.out %>% 
+        mutate(prop_severe_transect = exact_extract(t, pti, fun=function(x, coverage_fraction){length(subset(x, x > 3))/length(x)},progress=FALSE),
+               prop_moderate_transect = exact_extract(t, pti, fun=function(x, coverage_fraction){length(subset(x, x>1 & x<4))/length(x)},progress=FALSE),
+               prop_burnt_transect = exact_extract(t, pti, fun=function(x, coverage_fraction){length(subset(x, x>1))/length(x)},progress=FALSE),
+               severity_diversity = landscapemetrics::sample_lsm(as.integer(t), y= as_Spatial(pti), what='lsm_l_shdi')$value)
+
+    df.out
+}
+
+## Example functions
+### Second one uses lapply to loop through a heap of dates. Output is a list
+
+## THREE YEARS
+sev.test = lapply(trap.dates, FUN = severity_stats, 
+                  firehist=firehist, 
+                  lagyears=3, 
+                  polyint = transect_buffer_550m)
+
+# Convert from list back to data frame
+sev.test.out.df = do.call('rbind', sev.test)
+
+sev.out = sev.test.out.df %>% 
+  rename(TRANSECT = "Transect", TRAP_START = "Date") %>% 
+  select(TRANSECT, TRAP_START, prop_burnt_transect, prop_moderate_transect, 
+         prop_severe_transect, severity_diversity) %>% 
+  mutate(TRANSECT = gsub("\\s|\\(Universal)","",TRANSECT)) 
+
+names(sev.out) = c("TRANSECT", "TRAP_START", "prop_burnt_transect", "prop_moderate_transect", "prop_severe_transect", "severity_diversity")
+
+sev.out$pa_severe_transect = ifelse(sev.out$prop_severe_transect > 0, 1, 0)
+
+covariates.table = left_join(covariates.table, sev.out, by=c("TRANSECT", "TRAP_START"))
+
+```
+
+## Harvesting History
+* Time since last harvested 
+* Proportion within 200m of site harvested in previous 20 years
+* Proportion within 200m of site harvested in previous 40 years
+* Proprtion within 200m of site harvested at all (any time)
+
+Takes a few min to run
+
+```{r}
+
+harvest.history = read_sf("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/SilviculturalOperations_WarrenJarrah.shp")
+harvest.history = st_transform(harvest.history, std.crs)
+
+harvest.history$YEAR= ifelse(harvest.history$Year == "1930-39", "1939",
+                             ifelse(harvest.history$Year == "1990-99", "1999",
+                             ifelse(harvest.history$Year == "pre-1920", "1920",
+                             ifelse(harvest.history$Year == "1920-29", "1929",
+                             ifelse(harvest.history$Year == "pre-1900", "1900",
+                             ifelse(harvest.history$Year == "2000-2009", "2009",
+                             ifelse(harvest.history$Year == "2010-2015", "2015",
+                             ifelse(harvest.history$Year == "1940-49", "1949",
+                             ifelse(harvest.history$Year == "1950-59", "1959",
+                             ifelse(harvest.history$Year == "1960-69", "1969",
+                             ifelse(harvest.history$Year == "1970-79", "1979",
+                             ifelse(harvest.history$Year == "1980-89", "1989", harvest.history$Year))))))))))))
+
+harvest.history$YEAR = as.numeric(harvest.history$YEAR)
+
+harvest.history$YEAR = as.Date(paste0(harvest.history$YEAR,"-12-31"),"%Y-%m-%d")
+
+harvest.list = list()
+for (i in 1:length(trap.dates)) {
+  start.date = trap.dates[i]
+  harvest.history$TSH = as.numeric(difftime(start.date,harvest.history$YEAR, unit="weeks"))/52.25
+  
+  #time since harvest
+  harvest.history_temp = subset(harvest.history, TSH > 0)
+  tsh_raster = fasterize(harvest.history_temp, mask, field="TSH", fun='min')
+
+  prop.5yrs.500m.transect = exact_extract(tsh_raster, transect_buffer_500m, fun=function(x, coverage_fraction){length(subset(x, x < 6))/length(x)},progress=FALSE)
+  prop.20yrs.500m.transect = exact_extract(tsh_raster, transect_buffer_500m, fun=function(x, coverage_fraction){length(subset(x, x < 20))/length(x)},progress=FALSE)
+  prop.great20yrs.500m.transect = exact_extract(tsh_raster, transect_buffer_500m, fun=function(x, coverage_fraction){length(subset(x, x > 19))/length(x)},progress=FALSE)
+  prop.5yrs.1km.transect = exact_extract(tsh_raster, transect_buffer_1km, fun=function(x, coverage_fraction){length(subset(x, x < 6))/length(x)},progress=FALSE)
+  prop.20yrs.1km.transect = exact_extract(tsh_raster, transect_buffer_1km, fun=function(x, coverage_fraction){length(subset(x, x < 20))/length(x)},progress=FALSE)
+  prop.great20yrs.1km.transect = exact_extract(tsh_raster, transect_buffer_1km, fun=function(x, coverage_fraction){length(subset(x, x > 20))/length(x)},progress=FALSE)
+  
+  harvestage.diversity = landscapemetrics::sample_lsm(as.integer(tsh_raster), y=transect_buffer_500m, what='lsm_l_shdi')
+  tsh.shannon.diversity = harvestage.diversity$value
+ 
+
+  harvest.data.transect = cbind(transects,start.date, 
+                                prop.5yrs.500m.transect, prop.20yrs.500m.transect, prop.great20yrs.500m.transect,
+                                prop.5yrs.1km.transect, prop.20yrs.1km.transect, prop.great20yrs.1km.transect,
+                                tsh.shannon.diversity)
+  harvest.list[[as.character(start.date)]] = harvest.data.transect
+}
+
+harvest.covariates = do.call(rbind, harvest.list)
+
+harvest.covariates = harvest.covariates %>% rename("TRAP_START" = start.date,
+                                             "prop.5yrsharvest.500m.transect" = prop.5yrs.500m.transect,
+                                             "prop.20yrsharvest.500m.transect" = prop.20yrs.500m.transect,
+                                             "prop.great20yrsharvest.500m.transect" = prop.great20yrs.500m.transect,
+                                             "prop.5yrsharvest.1km.transect" = prop.5yrs.1km.transect,
+                                             "prop.20yrsharvest.1km.transect" = prop.20yrs.1km.transect,
+                                             "prop.great20yrsharvest.1km.transect" = prop.great20yrs.1km.transect) %>%
+  mutate(TRAP_START = as.Date(TRAP_START), 
+         Year = year(TRAP_START), TRANSECT = gsub("\\s|\\(Universal)","",TRANSECT)) 
+
+
+# Add to covariate table
+harvest.covariates = harvest.covariates %>% 
+  dplyr::select("TRAP_START", "TRANSECT",
+                "prop.5yrsharvest.500m.transect",
+                "prop.20yrsharvest.500m.transect",
+                "prop.great20yrsharvest.500m.transect",
+                "prop.5yrsharvest.1km.transect",
+                "prop.20yrsharvest.1km.transect",
+                "prop.great20yrsharvest.1km.transect",
+                "tsh.shannon.diversity")
+
+covariates.table = left_join(covariates.table, harvest.covariates, by=c("TRANSECT", "TRAP_START"))
+
+```
+
+
+## Fox Baiting
+
+```{r}
+bait.crs = st_crs(20350)
+trap_points = st_transform(trap_points, crs=bait.crs)
+# Read in baiting spatial data
+# First do Manjimup Western Shield ground baiting
+balban = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Balban.shp")
+camelar = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Camelar.shp")
+keninup = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Keninup.shp")
+kingston = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Kingston.shp")
+#perupcore = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/New Perup_Core.shp")
+perupcore = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Perup Core.shp")
+perup_yendicup = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Perup_Yendicup_Baiting.shp")
+
+perupcore = perupcore  %>% st_union() %>% st_as_sf()
+balban = balban %>% st_transform(bait.crs) %>% st_union() %>% st_buffer(dist=2500) %>% st_as_sf() 
+camelar = camelar %>% st_set_crs(bait.crs) %>% st_union() %>% st_buffer(dist=2500) %>% st_as_sf() 
+keninup = keninup %>% st_set_crs(bait.crs) %>% st_union() %>% st_buffer(dist=2500) %>% st_as_sf() 
+kingston = kingston %>% st_set_crs(bait.crs) %>% st_union() %>% st_buffer(dist=2500) %>% st_as_sf() 
+perupcore = perupcore %>% st_set_crs(bait.crs) %>% st_union() %>% st_buffer(dist=2500) %>% st_as_sf() 
+yendicup = perup_yendicup %>% filter(Program == "Yendicup Core Baiting") %>% st_union() %>% st_buffer(dist=2500) %>% st_as_sf() 
+# Perup whole is an amalgamation of balban, camelar and keninup where we cant distinguish the bait numbers between transects
+perup_whole = st_union(balban, camelar) 
+perup_whole = st_union(perup_whole, keninup)
+
+# Add in extra Western Shield ground baiting (Denbarker & Lake Muir)
+den.muir = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Predator data/BaitingData Request/baiting data from Marika 2021/Baiting History/Denbarker.Lake Muir 15.08.19.shp")
+den.muir= den.muir %>% st_set_crs(bait.crs) %>% st_union()  %>% st_buffer(dist=2500) %>% st_as_sf() 
+
+# Add in De Longraft road pre-October 2012
+# Discussed with AW and MM on 20/04/2021
+# Quarterly baiting at 50 baits per quarter estimate
+delandgraaft = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Predator data/BaitingData Request/baiting data from Marika 2021/Baiting History/deLandgrafft.shp")
+delandgraaft = delandgraaft %>% st_transform(bait.crs) %>% st_union() %>% st_buffer(dist=2500) %>% st_as_sf() 
+
+# Add in Translocations
+translocations = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Predator data/BaitingData Request/baiting data from Marika 2021/Baiting History/Translocations.shp")
+translocations = translocations %>% st_transform(bait.crs) %>% st_buffer(dist=2500) %>% st_as_sf() 
+warrup_trans = translocations %>% filter(Zone =="Warrup") %>% st_union() %>% st_as_sf()
+yendicup_trans = translocations %>% filter(Zone =="Yendicup") %>% st_union() %>% st_as_sf()
+walcott_trans = translocations %>% filter(Zone =="Walcott") %>% st_union() %>% st_as_sf()
+
+# Last do Western Shield Aerial baiting for three cells
+aerial = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/WesternShield Flight Cells.shp")
+manjimup = aerial %>% st_transform(bait.crs) %>% filter(CELL_NAME == "Manjimup") %>% st_union() %>% st_as_sf() 
+shannon = aerial %>% st_transform(bait.crs) %>% filter(CELL_NAME == "Shannon") %>% st_union() %>% st_as_sf() 
+denbarker = aerial %>% st_transform(bait.crs) %>% filter(CELL_NAME == "Denbarker") %>% st_union() %>% st_as_sf() 
+
+
+# Baiting count data across whole study region
+baits = read.csv("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Predator data/predator.baiting.combined_BG_210415.csv")
+baits = baits %>% filter(Purpose != "FPC Fox Baiting") %>%
+  mutate(StartDate = as.Date(StartDate, format= "%d/%m/%y"))
+
+dates = trap.dates
+
+region = st_union(manjimup, shannon)
+region = st_union(region, denbarker)
+ras = raster(extent(region), res=50, vals = 1)
+
+baiting_lags <- function(date, polys, lagmonths){
+  date.num = as.Date(date)
+  
+  # Get baiting events within tme period
+  lag_baits = baits %>% dplyr::filter(StartDate < date.num  & StartDate > (date.num+days(2)-months(lagmonths)))  # Baiting runs in previous lag months
+  
+  # Aerial baiting
+  manjimup_area = manjimup %>% st_area() %>% as.numeric()
+  manjimup_lag = lag_baits %>% dplyr::filter(Zone == "Manjimup Cell")
+  
+  manjimup$lag = sum(manjimup_lag$BaitCount)/(manjimup_area/1000000) # Baits per km in previous 3 months
+  manjimup_lag_raster = fasterize(manjimup, ras, field="lag")
+
+  # Shannon
+  shannon_area = shannon %>% st_area() %>% as.numeric()
+  shannon_lag = lag_baits %>% dplyr::filter(Zone == "Shannon")
+  
+  shannon$lag = sum(shannon_lag$BaitCount)/(shannon_area/1000000) # Baits per km in previous 3 months
+  shannon_lag_raster = fasterize(shannon, ras, field="lag")
+  
+  # Denbarker
+  denbarker_area = denbarker %>% st_area() %>% as.numeric()
+  denbarker_lag = lag_baits %>% dplyr::filter(Zone == "Denbarker")
+  
+  denbarker$lag = sum(denbarker_lag$BaitCount)/(denbarker_area/1000000) # Baits per km in previous 3 months
+  denbarker_lag_raster = fasterize(denbarker, ras, field="lag")
+  
+  # Kingston
+  kingston_area = kingston %>% st_area() %>% as.numeric()
+  kingston_lag = lag_baits %>% dplyr::filter(Zone == "Kingston") 
+  
+  kingston$lag = sum(kingston_lag$BaitCount)/(kingston_area/1000000)
+  kingston_lag_raster = fasterize(kingston, ras, field="lag")
+  
+  # Perup (whole) -- only pre-2010
+  perup_area = perup_whole %>% st_area() %>% as.numeric()
+  perup_lag = lag_baits %>% dplyr::filter(Zone == "Perup ground (Ken, Cam, Bal)")
+  
+  perup_whole$lag = sum(perup_lag$BaitCount)/(perup_area/1000000)
+  perup_lag_raster = fasterize(perup_whole, ras, field="lag")
+  
+  # De landgraaft
+  delandgraaft_area = delandgraaft %>% st_area() %>% as.numeric()
+  delandgraaft_lag = lag_baits %>% dplyr::filter(Zone == "deLandgraaft") 
+  
+  delandgraaft$lag = sum(delandgraaft_lag$BaitCount)/(delandgraaft_area/1000000)
+  
+  delandgraaft_lag_raster = fasterize(delandgraaft, ras, field="lag")
+  
+  # Perup Core -- only post=
+  perupcore_area = perupcore %>% st_area() %>% as.numeric()
+  perupcore_lag = lag_baits %>% dplyr::filter(Zone == "PerupCore") 
+  
+  perupcore$lag = sum(perupcore_lag$BaitCount)/(perupcore_area/1000000)
+  
+  perupcore_lag_raster = fasterize(perupcore, ras, field="lag")
+  
+  # Balban
+  balban_area = balban %>% st_area() %>% as.numeric()
+  balban_lag = lag_baits %>% dplyr::filter(Zone == "Balban") 
+  
+  balban$lag= sum(balban_lag$BaitCount)/(balban_area/1000000)
+  balban_lag_raster = fasterize(balban, ras, field="lag")
+  
+  # Camelar
+  camelar_area = camelar %>% st_area() %>% as.numeric()
+  camelar_lag = lag_baits %>% dplyr::filter(Zone == "Camelar")  
+  
+  camelar$lag = sum(camelar_lag$BaitCount)/(camelar_area/1000000)
+  
+  camelar_lag_raster = fasterize(camelar, ras, field="lag")
+  
+  # Keninuo
+  keninup_area = keninup %>% st_area() %>% as.numeric()
+  keninup_lag = lag_baits %>% dplyr::filter(Zone == "Keninup") 
+  
+  keninup$lag = sum(keninup_lag$BaitCount)/(keninup_area/1000000)
+  keninup_lag_raster = fasterize(keninup, ras, field="lag")
+  
+  # Denbarker - Lake Muir Ground Baiting
+  den.muir_area = den.muir %>% st_area() %>% as.numeric()
+  den.muir_lag = lag_baits %>% dplyr::filter(BaitingCell == "Denbarker" & Purpose == "Western Shield" & Aerial_Ground == "Ground") 
+  
+  den.muir$lag = sum(den.muir_lag$BaitCount)/(den.muir_area/1000000)
+  den.muir_lag_raster = fasterize(den.muir, ras, field="lag")
+  
+  # Translocations
+  ## Warrup
+  warrup_trans_area = warrup_trans %>% st_area() %>% as.numeric()
+  warrup_trans_lag = lag_baits %>% dplyr::filter(Zone == "Warrup" & Purpose == "Translocation") 
+  
+  warrup_trans$lag = sum(warrup_trans_lag$BaitCount)/(warrup_trans_area/1000000)
+  warrup_trans_lag_raster = fasterize(warrup_trans, ras, field="lag")
+  
+  ## Yendicup
+  yendicup_trans_area = yendicup_trans %>% st_area() %>% as.numeric()
+  yendicup_trans_lag = lag_baits %>% dplyr::filter(Zone == "Yendicup" & Purpose == "Translocation") 
+  
+  yendicup_trans$lag = sum(yendicup_trans_lag$BaitCount)/(yendicup_trans_area/1000000)
+  yendicup_trans_lag_raster = fasterize(yendicup_trans, ras, field="lag")
+  
+  ## Walcott
+  walcott_trans_area = walcott_trans %>% st_area() %>% as.numeric()
+  walcott_trans_lag = lag_baits %>% dplyr::filter(Zone == "Walcott" & Purpose == "Translocation") 
+  
+  walcott_trans$lag = sum(walcott_trans_lag$BaitCount)/(walcott_trans_area/1000000)
+  
+  walcott_trans_lag_raster = fasterize(walcott_trans, ras, field="lag")
+  
+  ## Sum them up
+   sum_lag = sum(manjimup_lag_raster, shannon_lag_raster, denbarker_lag_raster, delandgraaft_lag_raster,
+                   perup_lag_raster, perupcore_lag_raster, balban_lag_raster, kingston_lag_raster,
+                   balban_lag_raster, camelar_lag_raster, keninup_lag_raster, den.muir_lag_raster,
+                   walcott_trans_lag_raster, yendicup_trans_lag_raster, warrup_trans_lag_raster, na.rm=TRUE)
+   
+    # Extract mean baiting intensity for each polygon
+    lag_extract.transect = data.frame(Lag = paste(lagmonths), Mean_Intensity = exact_extract(sum_lag, polys, fun='mean', progress=FALSE))
+    lag_extract.transect = cbind(st_drop_geometry(polys), lag_extract.transect)
+   
+    lag_extract.transect$Date = date.num
+    lag_extract.transect$LagMonths = paste(lagmonths)
+    lag_extract.transect
+}
+
+# Transect Scale
+transect.baiting.out = parallel::mclapply(dates, baiting_lags, polys = transect_buffer_1km, lagmonths=12, mc.cores = 3)
+transect.baiting.out.df = do.call('rbind',transect.baiting.out)
+
+bait.data.transect = transect.baiting.out.df %>%
+  pivot_wider(id_cols = c("TRANSECT", "Date"), names_from = "Lag", values_from = "Mean_Intensity") %>%
+  rename("BaitIntensity.Transect.Twelve" =`12`,
+         "TRAP_START" = Date) %>% mutate(Year = year(TRAP_START),TRANSECT = gsub("\\s|\\(Universal)","",TRANSECT)) %>%
+  dplyr::select("TRANSECT", "TRAP_START", "Year", "BaitIntensity.Transect.Twelve") 
+
+b = ggplot(bait.data.transect) + geom_line(aes(x=TRAP_START, y = BaitIntensity.Transect.Twelve, colour="red")) + facet_wrap(~TRANSECT)
+b
+# Add to covariates table
+covariates.table = left_join(covariates.table, bait.data.transect, by = c("TRANSECT", "TRAP_START"))
+
+```
+
+
+## Rainfall
+```{r}
+rain.rasters = list.files("~/Dropbox/_Research/data/spatial/climate grids/rainfall", pattern=".grid", full.names = TRUE)
+rain.stack = stack(rain.rasters)
+crs(rain.stack) <- "+proj=longlat +datum=WGS84"
+
+# Read in your points here and get a 200m buffer
+st_crs(transect_buffer_200m) <- st_crs(32750)
+
+ras.names = data.frame(names(rain.stack))
+ras.names$first = substr(ras.names$names.rain.stack., 2, 9)
+ras.names$last = substr(ras.names$names.rain.stack., 10, 17)
+ras.names$first = as.Date(ras.names$first, '%Y%m%d')
+ras.names$last = as.Date(ras.names$last, '%Y%m%d')
+ras.names$MonthYear = paste0(month(ras.names$last, label=TRUE,abbr=FALSE),"_",year(ras.names$last))
+ras.names$ID = 1:length(ras.names$MonthYear)
+ras.names$Autumn = ifelse(month(ras.names$first) > 2 & month(ras.names$first) < 6,1,0)
+
+dates = trap.dates
+
+extract_precip = function(date, polys, lagmonths){
+  MYround = as.Date(date, format = '%d/%m/%y')
+  dat = ras.names[which(ras.names$last >= MYround & ras.names$first <= MYround),]
+  n = as.numeric(dat$ID)
+  # Sums in previous months
+  newstack_lag = subset(rain.stack, (n-lagmonths):(n-1))
+  sumras_lag = sum(newstack_lag)
+  mean_lag = data.frame(exact_extract(sumras_lag, polys, fun='mean', progress=FALSE))
+  colnames(mean_lag) = paste0("Rain_",lagmonths,"Months")
+  
+  # Total rainfall in last autumn
+  autumn.dates = ras.names[which(year(ras.names$first) > year(dat$first)-2 & year(ras.names$first) < year(dat$first) & ras.names$Autumn==1),]
+  autumn.ids = autumn.dates$ID
+  autstack = subset(rain.stack, autumn.ids)
+  sumras_aut = sum(autstack)
+  mean_aut = data.frame(exact_extract(sumras_aut, polys, fun='mean', progress=FALSE))
+  
+  colnames(mean_aut) = "Rain.PrvAutumn"
+  
+  precip.data.out = st_drop_geometry(polys)
+  precip.data.out$Date = MYround
+  precip.data.out = cbind(precip.data.out, mean_lag, mean_aut)
+  
+}
+
+
+rain.out = parallel::mclapply(dates, extract_precip, polys = transect_buffer_200m,lagmonths=12, mc.cores = 3)
+
+rain.out.df = do.call('rbind', rain.out)
+
+rain.out.df = rain.out.df  %>% mutate(TRANSECT = gsub("\\s|\\(Universal)","",TRANSECT)) %>% rename("Rain.TwelveMonths"=Rain_12Months)
+covariates.table = left_join(covariates.table, rain.out.df, by = c("TRANSECT", "TRAP_START"="Date"))
+
+```
+
+
+## Productivity
+```{r}
+prod.rasters = intersect(list.files("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/NDVI", pattern=".tif$", full.names = TRUE), list.files("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/NDVI", pattern="MOD13A3.006__1_km_monthly_NDVI", full.names = TRUE))
+
+prod.stack =stack(prod.rasters)
+
+mean.ndvi = mean(prod.stack)
+
+transect_buffer_200m_prodcrs = st_transform(transect_buffer_200m, crs(prod.stack))
+
+mean.ndvi.transect = exact_extract(mean.ndvi, transect_buffer_200m_prodcrs, fun='mean',progress=FALSE)
+mean.ndvi.transect = data.frame(TRANSECT = transect_buffer_200m_prodcrs$TRANSECT, 
+                                meanNDVI = mean.ndvi.transect)
+
+ras.names = data.frame(names(prod.stack))
+
+ras.names$yearday = sub(".*MOD13A3.006__1_km_monthly_NDVI_doy","", ras.names$names.prod.stack.)
+ras.names$yearday = sub("_aid0001*.","", ras.names$yearday)
+ras.names$Date = as.Date(ras.names$yearday, '%Y%j')
+ras.names$MonthYear = paste0(month(ras.names$Date, label=TRUE,abbr=FALSE),"_",year(ras.names$Date))
+ras.names$ID = 1:length(ras.names$MonthYear)
+
+dates = data.frame(trap.dates)
+dates$round = paste0(month(trap.dates,label=TRUE, abbr=FALSE),"_",year(trap.dates))
+traps.data = transects
+
+start = Sys.time()
+ndvi.out = list()
+for (r in 1:length(dates$trap.dates)){
+  MYround = dates$round[r]
+  dat = ras.names[which(ras.names$MonthYear==MYround),]
+  n = as.numeric(dat$ID)
+  
+  newstack_2 = subset(prod.stack, n)
+  sumras_2 = sum(newstack_2)
+  mean_2 = data.frame(exact_extract(sumras_2, transect_buffer_200m_prodcrs, fun='mean',progress=FALSE))
+
+  colnames(mean_2) = paste0("NDVI_OneMonth")
+  
+  data = cbind(traps.data, mean_2)
+  data$date = dates$trap.dates[r]
+  
+  ndvi.out[[r]] <- data
+  }
+
+total = Sys.time() - start
+total
+
+data = do.call('rbind', ndvi.out)
+
+data = left_join(data, mean.ndvi.transect)
+data$ndvi.monthly.anomaly = (data$NDVI_OneMonth - data$meanNDVI)/data$meanNDVI
+
+ndvi.data = data %>% mutate(mean.smNDVI = (0.01*meanNDVI)-1, TRANSECT = gsub("\\s|\\(Universal)","",TRANSECT)) %>%
+  dplyr::select(TRANSECT, date, mean.smNDVI, ndvi.monthly.anomaly) 
+
+covariates.table = left_join(covariates.table, ndvi.data, by = c("TRANSECT", "TRAP_START"="date"))
+
+
+```
+
+## Pasture
+```{r}
+load("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/si50_woody_geo/pasture.stack.30052021.RData")
+crs(pasture.stack) <- CRS('+init=EPSG:4326')
+
+prop.pasture.list = list()
+for (i in 1:length(names(pasture.stack))){
+  ras = pasture.stack[[i]]
+  name = names(ras)
+  prop.pasture.5km = exact_extract(ras, transect_buffer_5km, fun=function(x, coverage_fraction){sum(x,na.rm=TRUE)/length(x)})
+  prop.pasture.1km = exact_extract(ras, transect_buffer_1km, fun=function(x, coverage_fraction){sum(x,na.rm=TRUE)/length(x)})
+  prop.pasture.out = cbind(transects, prop.pasture.5km, prop.pasture.1km)
+  prop.pasture.out$Name = name
+  prop.pasture.list[[name]] <- prop.pasture.out
+}
+
+prop.pasture.out = do.call('rbind',prop.pasture.list)
+
+prop.pasture.out$Name = gsub("_NCAS_si50_woody_geo", "", prop.pasture.out$Name)
+prop.pasture.out$Year = as.numeric(gsub(".*_","",prop.pasture.out$Name))
+prop.pasture.out = prop.pasture.out %>% mutate(TRANSECT = gsub("\\s|\\(Universal)","",TRANSECT)) %>%
+  dplyr::select(TRANSECT, Year, prop.pasture.1km, prop.pasture.5km)
+
+# Add in missing years
+props = prop.pasture.out %>% filter(Year == 2000)
+props2001 = props %>% mutate(Year = 2001)
+props = prop.pasture.out %>% filter(Year == 2002)
+props2003 = props %>% mutate(Year = 2003)
+
+prop.pasture.out = rbind(prop.pasture.out, props2001, props2003)
+
+covariates.table = left_join(covariates.table, prop.pasture.out, by =c("TRANSECT", "Year"))
+
+ggplot(covariates.table) + 
+  geom_point(aes(x=Year,y=prop.pasture.5km)) + 
+  geom_smooth(aes(x=Year,y=prop.pasture.5km),method='lm') + facet_wrap(~TRANSECT)
+
+# Distance to nearest pasture patch
+transect.centroid = transect_buffer_500m %>% st_centroid()
+
+dist.pasture.list =list()
+for (i in 1:length(names(pasture.stack))){
+  ras = pasture.stack[[i]]
+  ras = projectRaster(ras, crs='+init=EPSG:32750')
+  name = names(ras)
+  ras.points = data.frame(rasterToPoints(ras))
+  ras.points = st_as_sf(ras.points, coords=c("x","y"),crs = '+init=EPSG:32750')
+  
+  distances = st_distance(transect.centroid, ras.points)
+  DistAg = apply(distances, 1, FUN=min)
+  dist.out = data.frame(TRANSECT = transect.centroid$TRANSECT, Name = name, DistCentroidPasture = DistAg)
+  dist.pasture.list[[name]] <- dist.out
+}
+
+dist.pasture.out = do.call('rbind', dist.pasture.list)
+dist.pasture.out$Name = gsub("_NCAS_si50_woody_geo", "", dist.pasture.out$Name)
+dist.pasture.out$Year = as.numeric(gsub(".*_","",dist.pasture.out$Name))
+dist.pasture.out = dist.pasture.out %>% mutate(TRANSECT = gsub("\\s|\\(Universal)","",TRANSECT)) %>%
+  dplyr::select(TRANSECT, Year, DistCentroidPasture)
+
+# Add in missing years
+dists = dist.pasture.out %>% filter(Year == 2000)
+dists2001 = dists %>% mutate(Year = 2001)
+dists = dist.pasture.out %>% filter(Year == 2002)
+dists2003 = dists %>% mutate(Year = 2003)
+dist.pasture.out = rbind(dist.pasture.out, dists2001, dists2003)
+
+
+covariates.table = left_join(covariates.table, dist.pasture.out, by =c("TRANSECT", "Year"))
+
+```
+
+## Planned Burn Assets
+```{r}
+assets = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/Assets_PlannedBurns.shp")
+st_crs(assets) <- "+proj=longlat +ellps=GRS80 +no_defs"
+mask.latlong = projectRaster(mask, crs="+proj=longlat")
+assets = as_Spatial(assets) 
+assets = spTransform(assets, "+proj=longlat")
+distance = distanceFromPoints(mask.latlong, assets)
+distance.proj = projectRaster(distance, crs="EPSG:32750")
+
+distance.assets = data.frame(TRANSECT = gsub("\\s|\\(Universal)","",transect_buffer_500m$TRANSECT), 
+                             Distance.Assets = exact_extract(distance.proj, transect_buffer_500m, fun='mean',progress=FALSE))
+
+covariates.table = left_join(covariates.table, distance.assets, by=c("TRANSECT"))
+```
+
+## Road Density
+```{r}
+roads = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/TGDB_Roads_Eradicat.shp")
+st_crs(roads) = "+proj=longlat +datum=WGS84"
+roads = st_transform(roads, std.crs)
+
+roads_clip_1km = roads %>% st_transform(std.crs) %>% st_intersection(transect_buffer_1km) %>% group_by(TRANSECT) %>% summarise()
+roads_clip_5km = roads %>% st_transform(std.crs) %>% st_intersection(transect_buffer_5km) %>% group_by(TRANSECT) %>% summarise()
+
+road.density = data.frame(TRANSECT = gsub("\\s|\\(Universal)","",transect_buffer_500m$TRANSECT),
+                          RoadLength1km = as.numeric(st_length(roads_clip_1km)),
+                          RoadLength5km = as.numeric(st_length(roads_clip_5km)))
+
+covariates.table = left_join(covariates.table, road.density, by=c("TRANSECT"))
+```
+
+## Topography
+https://ecat.ga.gov.au/geonetwork/srv/eng/catalog.search#/metadata/123119
+
+## Long term rainfall
+Read in the long term mean preciptitation
+Subtract the 12 month lags to create an proportional variation
+```{r}
+annual.prec = raster("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/Climate Data/rainan 4.txt")
+crs(annual.prec) <- "+proj=longlat +datum=WGS84"
+
+transect.annual.prec = data.frame(TRANSECT = transect_buffer_200m$TRANSECT,
+                                  mean.annual.precip = exact_extract(annual.prec, transect_buffer_200m, fun='mean'))
+transect.annual.prec = mutate(transect.annual.prec, TRANSECT = gsub("\\s|\\(Universal)","",TRANSECT))
+
+covariates.table = left_join(covariates.table, transect.annual.prec, by ="TRANSECT")
+covariates.table$rain.anomaly.twelve = (covariates.table$Rain.TwelveMonths - covariates.table$mean.annual.precip)/covariates.table$mean.annual.precip
+
+```
+
+## Vegetation Type
+
+depression and swamps are crap
+midslopes are the good stuff
+uplands can be a bit grainy, 
+quenda depressions
+chuditch whatever
+
+```{r}
+veg.complex =  read_sf("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/Vegetation_Complexes_WarrenJarrah.shp")
+
+veg.complex.transect = veg.complex %>% st_transform(std.crs) %>% 
+  st_intersection(transect_buffer_500m)
+veg.complex.transect$Hectares = as.numeric(st_area(veg.complex.transect))/10000
+
+veg.complex.transect =  veg.complex.transect %>% 
+  st_drop_geometry() %>% mutate(SUBCATEGOR = ifelse(is.na(SUBCATEGOR), SW_SUBREG, SUBCATEGOR)) %>% 
+  dplyr::select(TRANSECT, SUBCATEGOR, Hectares) %>% 
+  rename("VegComplex" = SUBCATEGOR) %>% mutate(TRANSECT = gsub("\\s|\\(Universal)","",TRANSECT)) %>%
+  group_by(TRANSECT, VegComplex) %>% summarise(Hectares = sum(Hectares))
+
+transect.area.500m = transect_buffer_500m %>% 
+  st_area() %>% as.numeric() 
+transect.area = data.frame(TRANSECT = gsub("\\s|\\(Universal)","",transect_buffer_500m$TRANSECT), Transect.Hectares = transect.area.500m/10000)
+veg.complex.transect = left_join(veg.complex.transect, transect.area)
+veg.complex.transect$PropArea = veg.complex.transect$Hectares/veg.complex.transect$Transect.Hectares
+
+veg.complex.transect.prop = veg.complex.transect %>%
+  filter(VegComplex == "Valleys") %>% rename("valleys.prop.area" = PropArea) %>%
+  dplyr::select(TRANSECT, valleys.prop.area)
+
+covariates.table = left_join(covariates.table, veg.complex.transect.prop, by = c("TRANSECT"))
+
+```
+
+# Fauna Abundance
+```{r}
+load("~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Processing/transect_bestmodels_abundancesforSEM_23072021.RData")
+
+# Woylies
+woylies = abundance.list$woylie
+woylies.ab = woylies %>% rename("Woylie_Abundance" = Abundance,
+                                "Woylie_SD" = SD) %>%
+  mutate(PeriodID = as.numeric(PeriodID)) %>%
+  dplyr::select(TRANSECT, PeriodID, Woylie_Abundance, Woylie_SD)
+
+covariates.table = left_join(covariates.table, woylies.ab, by = c("TRANSECT", "PeriodID"))
+
+# Koomal
+koomal = abundance.list$koomal
+koomal.ab = koomal %>% rename("Koomal_Abundance" = Abundance,
+                              "Koomal_SD" = SD) %>%
+  mutate(PeriodID = as.numeric(PeriodID)) %>%
+  dplyr::select(TRANSECT, PeriodID, Koomal_Abundance, Koomal_SD)
+
+covariates.table = left_join(covariates.table, koomal.ab, by = c("TRANSECT", "PeriodID"))
+
+# Chuditch
+chuditch = abundance.list$chuditch
+chuditch.ab = chuditch %>% rename("Chuditch_Abundance" = Abundance,
+                                                     "Chuditch_SD" = SD) %>%
+  mutate(PeriodID = as.numeric(PeriodID)) %>%
+  dplyr::select(TRANSECT, PeriodID, Chuditch_Abundance, Chuditch_SD)
+
+covariates.table = left_join(covariates.table, chuditch.ab, by = c("TRANSECT", "PeriodID"))
+
+# Quenda
+covariates.table$Quenda_PA = ifelse(covariates.table$Quenda_Caps > 0, 1, covariates.table$Quenda_Caps)
+
+```
+
+
+## Save Table
+```{r}
+
+write.csv(covariates.table, "~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Clean/transect.sem.data.Nov2021.csv")
+
+```
+
