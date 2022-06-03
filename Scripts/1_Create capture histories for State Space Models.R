@@ -10,10 +10,10 @@ library(measurements)
 # Read in the data files
 #C:/Users/bg47/
 
-trap_data = read.csv("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Mammal data/FF_allSpeciesData_SurveySites_190225.csv")
-extra_trap_data = read.csv("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Mammal data/FF_allSpeciesData_SurveySitesExtra_190227.csv", header=TRUE, check.names = FALSE)
-daily_effort = read.csv("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Mammal data/DailyTrapEffort_10022020.csv")
-session_effort = read.csv("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Mammal data/SessionTrapEffort_11022020.csv")
+trap_data = read.csv("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Mammal data/FF_allSpeciesData_SurveySites_190225.csv")
+extra_trap_data = read.csv("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Mammal data/FF_allSpeciesData_SurveySitesExtra_190227.csv", header=TRUE, check.names = FALSE)
+daily_effort = read.csv("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Mammal data/DailyTrapEffort_10022020.csv")
+session_effort = read.csv("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Mammal data/SessionTrapEffort_11022020.csv")
 
 # Join the transect data from the original Upper Warren area (in Wayne et al. 2017), plus the extra data from nearby transects. 
 all_trap_data = rbind(trap_data, extra_trap_data)
@@ -59,9 +59,9 @@ transect.lookup = my_trap_data %>% dplyr::select(TRANSECT, SSI_LABEL) %>% distin
 
 ## Read in trap points
 
-trap_points = read_sf("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Trapping/trap_points_compiled.shp")
+trap_points = read_sf("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Trapping/trap_points_compiled.shp")
 
-sub.transect.lookup = read.csv("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Trapping/sub.transect.lookup.csv")
+sub.transect.lookup = read.csv("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Trapping/sub.transect.lookup.csv")
 trap_points = full_join(trap_points, sub.transect.lookup, by = c("TRANSECT", "SiteID"))
 
 trap_points$SiteID = gsub("Balban (Universal)","Balban",trap_points$SiteID, fixed=TRUE)

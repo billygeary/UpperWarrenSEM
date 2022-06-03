@@ -15,7 +15,7 @@ library(ggplot2)
 library(modelr)
 library(tidybayes)
 
-data = read.csv("~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Clean/transect.sem.data.Nov2021.csv")
+data = read.csv("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Clean/transect.sem.data.Nov2021.csv")
 
 ```
 
@@ -49,6 +49,19 @@ data$Phase = ifelse(data$year > 1999 & data$year < 2005, "2000-2004",
 (quenda_total = sum(data$Quenda_Caps))
 
 ```
+## Summarise covariates
+```{r}
+cov.summary = data %>% 
+  dplyr::select(14:56) 
+
+cov.summary.out = data.frame(Covariate = names(cov.summary),
+                             Mean = round(apply(cov.summary, 2, mean), digits=2),
+                             Min = round(apply(cov.summary, 2, min), digits=2), 
+                             Max = round(apply(cov.summary, 2, max), digits=2))
+
+write.csv(cov.summary.out, "~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/_Projects/UpperWarrenSEM/Outputs/cov.summary.out.csv")
+
+```
 
 ## Look at correlations between data
 ```{r}
@@ -68,7 +81,7 @@ high.cors = cors %>% filter(Freq < -0.7 | Freq >0.7) %>% filter(Freq !=1) %>%
 ## Plot the abundance changes over time
 
 ```{r}
-load("~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Processing/transect_bestmodels_abundancesforSEM_23072021.RData")
+load("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Processing/transect_bestmodels_abundancesforSEM_23072021.RData")
 date.lookup = data %>% select(PeriodID, TRAP_START) %>% mutate(TRAP_START=as.Date(TRAP_START)) %>%
   mutate(PlotDate = lubridate::floor_date(TRAP_START, unit='halfyear')) %>%
   group_by(PeriodID, PlotDate) %>% summarise() %>% ungroup %>% mutate(PeriodID = as.character(PeriodID))
@@ -159,8 +172,8 @@ chuditch.m <- bf(Chuditch_Abundance ~ 1 , family='gamma')
 koomal.m <- bf(Koomal_Abundance ~ 1 , family='gamma')
 quenda.m <- bf(Quenda_PA ~ 1 , family='binomial')
 ### Fire
-recentfire.m <- bf(prop_moderate_transect ~ 1 , family='beta')
-multiburn.m <- bf(prop.burnttwice.500m.transect ~ 1 , family='beta')
+recentfire.m <- bf(prop_moderate_transect ~ 1 , family='gaussian')
+multiburn.m <- bf(prop.burnttwice.500m.transect ~ 1 , family='gaussian')
 firediv.m<- bf(tsf.cat.shannon.diversity ~ 1 , family='gaussian')
 unburnt.m <- bf(prop.great10yrs.unburnt.500m.transect ~ 1, family='gaussian')
 severe.m <- bf(prop_severe_transect ~ 1, family='gaussian')
@@ -263,7 +276,6 @@ sem.fit.m1 <- brm(woylie.m1 + chuditch.m1 + koomal.m1 + quenda.m1 +
                      bait.m1 + ndvi.m1 + ndvianom.m1 + set_rescor(FALSE), 
                   data=data, cores=3, chains = 3, iter=4000)
 ```
-
 ### Model 2
 m2 = Recent Fire, Recent Harvesting
 ```{r message=FALSE, warning=FALSE}
@@ -436,6 +448,71 @@ sem.fit.m4 <- brm(woylie.m4 + chuditch.m4 + koomal.m4 + quenda.m4 +
                      bait.m4 + ndvi.m4 + ndvianom.m4 + set_rescor(FALSE), data=data, cores=3, chains = 3, iter=4000)
 ```
 
+### Model 5
+m1 = Harvest Diversity & NDVI
+```{r message=FALSE, warning=FALSE}
+# Fauna
+woylie.m5 <- bf(Woylie_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(mean.smNDVI) + scale(ndvi.monthly.anomaly) + 
+                                   scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                   scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + 
+                                   scale(prop.burnttwice.500m.transect) + scale(prop_severe_transect) + 
+                                   scale(tsh.shannon.diversity) +
+                                   scale(Chuditch_Abundance) + arma(time=PeriodID, gr=TRANSECT, cov=TRUE) , family='gamma')
+                  
+chuditch.m5 <- bf(Chuditch_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(mean.smNDVI) + scale(ndvi.monthly.anomaly) + 
+                                       scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                       scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + 
+                                       scale(prop.burnttwice.500m.transect) + scale(prop_severe_transect) + 
+                                       scale(tsh.shannon.diversity) +
+                                       arma(time=PeriodID, gr=TRANSECT, cov=TRUE) , family='gamma')
+
+koomal.m5 <- bf(Koomal_Abundance ~ scale(BaitIntensity.Transect.Twelve) + scale(mean.smNDVI) + scale(ndvi.monthly.anomaly) + 
+                                   scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                                   scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + 
+                                   scale(prop.burnttwice.500m.transect) + scale(prop_severe_transect) + 
+                                   scale(tsh.shannon.diversity) +
+                                   scale(Woylie_Abundance) + scale(Chuditch_Abundance) + arma(time=PeriodID, gr=TRANSECT, cov=TRUE) , family='gamma')
+
+quenda.m5 <- bf(Quenda_PA ~ scale(BaitIntensity.Transect.Twelve) + scale(mean.smNDVI) + scale(ndvi.monthly.anomaly) + 
+                            scale(prop.pasture.1km) + scale(DistCentroidPasture) +  scale(valleys.prop.area) +
+                            scale(prop_moderate_transect) + scale(tsf.cat.shannon.diversity) + 
+                            scale(prop.burnttwice.500m.transect) + scale(prop_severe_transect) + 
+                            scale(tsh.shannon.diversity) +
+                            scale(Chuditch_Abundance) + arma(time=PeriodID, gr=TRANSECT, cov=TRUE) , family='binomial')
+### Fire
+recentfire.m5 <- bf(prop_moderate_transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(DistCentroidPasture) +
+                                                   scale(Distance.Assets) + scale(RoadLength1km) + arma(time=PeriodID, gr=TRANSECT, cov=TRUE) , family=zero_inflated_beta(link="probit"))
+
+unburnt.m5 <- bf(prop.great10yrs.unburnt.500m.transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) +
+                                                           scale(DistCentroidPasture) + scale(Distance.Assets) + 
+                                                           scale(RoadLength1km) + arma(time=PeriodID, gr=TRANSECT, cov=TRUE) , family=zero_one_inflated_beta(link="probit"))
+
+multiburn.m5 <- bf(prop.burnttwice.500m.transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) +
+                                                           scale(DistCentroidPasture) + scale(Distance.Assets) + 
+                                                           scale(RoadLength1km) + arma(time=PeriodID, gr=TRANSECT, cov=TRUE) , family=zero_inflated_beta(link="probit"))
+
+firediv.m5 <- bf(tsf.cat.shannon.diversity ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(RoadLength1km) + 
+                                             scale(DistCentroidPasture) + scale(Distance.Assets) +
+                                             arma(time=PeriodID, gr=TRANSECT, cov=TRUE) , family='gamma')
+
+severe.m5 <- bf(prop_severe_transect ~ scale(prop.20yrsharvest.500m.transect) + scale(prop.pasture.1km) + scale(RoadLength1km) + 
+                                             scale(DistCentroidPasture) + scale(Distance.Assets) +
+                                             arma(time=PeriodID, gr=TRANSECT, cov=TRUE) , family=zero_inflated_beta(link="probit"))
+
+### Baiting
+bait.m5<- bf(scale(BaitIntensity.Transect.Twelve) ~ scale(prop.pasture.1km) + scale(DistCentroidPasture) + scale(RoadLength1km) + 
+                                                    arma(time=PeriodID, gr=TRANSECT, cov=TRUE) , family='gaussian')
+### Productivity
+ndvi.m5 <- bf(scale(mean.smNDVI) ~ scale(mean.annual.precip) + scale(valleys.prop.area) + arma(time=PeriodID, gr=TRANSECT, cov=TRUE) , family='gaussian')
+ndvianom.m5 <- bf(scale(ndvi.monthly.anomaly) ~ scale(rain.anomaly.twelve) + arma(time=PeriodID, gr=TRANSECT, cov=TRUE) , family='gaussian')
+
+# SEM 6487.7
+sem.fit.m5 <- brm(woylie.m5 + chuditch.m5 + koomal.m5 + quenda.m5 + 
+                    recentfire.m5 + firediv.m5 + unburnt.m5 + multiburn.m5 + severe.m5 +
+                     bait.m5 + ndvi.m5 + ndvianom.m5 + set_rescor(FALSE), 
+                  data=data, cores=3, chains = 3, iter=4000)
+```
+
 # Model Selection
 ```{r message=FALSE, warning=FALSE}
 waic(sem.fit.m, sem.fit.m0, sem.fit.m1, sem.fit.m2, sem.fit.m3, sem.fit.m4)
@@ -448,8 +525,8 @@ save(best_sem, file="~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SE
 # Plot Relationships
 ### Plot Coefficients 
 ```{r}
-best_sem = sem.fit.m1
-sem.vars = c(get_variables(sem.fit.m1), get_variables(sem.fit.m2))
+best_sem = sem.fit.m5
+sem.vars = c(get_variables(sem.fit.m1), get_variables(sem.fit.m5))
 woylie.vars = c(sem.vars[grep("b_WoylieAbundance_scale",sem.vars)], sem.vars[grep("bsp_WoylieAbundance",sem.vars)])
 chuditch.vars = c(sem.vars[grep("b_ChuditchAbundance_scale",sem.vars)], sem.vars[grep("bsp_ChuditchAbundance",sem.vars)])
 koomal.vars = c(sem.vars[grep("b_KoomalAbundance_scale",sem.vars)], sem.vars[grep("bsp_KoomalAbundance",sem.vars)])
@@ -496,7 +573,7 @@ woylie.coef = best_sem %>%
   filter(.variable %in% woylie.vars) %>%
   mutate(.variable = gsub("b_WoylieAbundance_scale","",.variable)) %>%
   mutate(.variable = gsub("bsp_WoylieAbundance_","",.variable)) %>%
-  left_join(var.lookup, by='.variable')
+  left_join(var.lookup, by='.variable') %>% mutate(Response = "Woylie")
 
 chuditch.coef = best_sem %>%
   tidy_draws() %>%
@@ -504,7 +581,7 @@ chuditch.coef = best_sem %>%
   filter(.variable %in% chuditch.vars) %>%
   mutate(.variable = gsub("b_ChuditchAbundance_scale","",.variable)) %>%
   mutate(.variable = gsub("bsp_ChuditchAbundance_","",.variable)) %>%
-  left_join(var.lookup, by='.variable')
+  left_join(var.lookup, by='.variable') %>% mutate(Response = "Chuditch")
 
 koomal.coef = best_sem %>%
   tidy_draws() %>%
@@ -512,7 +589,7 @@ koomal.coef = best_sem %>%
   filter(.variable %in% koomal.vars) %>%
   mutate(.variable = gsub("b_KoomalAbundance_scale","",.variable)) %>%
   mutate(.variable = gsub("bsp_KoomalAbundance_","",.variable)) %>%
-  left_join(var.lookup, by='.variable') 
+  left_join(var.lookup, by='.variable')  %>% mutate(Response = "Koomal")
 
 quenda.coef = best_sem %>%
   tidy_draws() %>%
@@ -520,64 +597,77 @@ quenda.coef = best_sem %>%
   filter(.variable %in% quenda.vars) %>%
   mutate(.variable = gsub("b_QuendaPA_scale","",.variable)) %>%
   mutate(.variable = gsub("bsp_QuendaPA_","",.variable)) %>%
-  left_join(var.lookup, by='.variable')
+  left_join(var.lookup, by='.variable') %>% mutate(Response = "Quenda")
 
 recentfire.coef = best_sem %>%
   tidy_draws() %>%
   gather_variables() %>%
   filter(.variable %in% recentfire.vars) %>%
   mutate(.variable = gsub("b_propmoderatetransect_scale","",.variable)) %>%
-  left_join(var.lookup, by='.variable')
+  left_join(var.lookup, by='.variable')%>% mutate(Response = "Prop Recently Burnt")
 
 multiburn.coef = best_sem %>%
   tidy_draws() %>%
   gather_variables() %>%
   filter(.variable %in% multiburn.vars) %>%
   mutate(.variable = gsub("b_propburnttwice500mtransect_scale","",.variable)) %>%
-  left_join(var.lookup, by='.variable')
+  left_join(var.lookup, by='.variable') %>% mutate(Response = "Prop Burnt Twice")
 
 firediv.coef = best_sem %>%
   tidy_draws() %>%
   gather_variables() %>%
   filter(.variable %in% firediv.vars) %>%
   mutate(.variable = gsub("b_tsfcatshannondiversity_scale","",.variable)) %>%
-  left_join(var.lookup, by='.variable')
+  left_join(var.lookup, by='.variable') %>% mutate(Response = "Fire Diversity")
 
 unburnt.coef = best_sem %>%
   tidy_draws() %>%
   gather_variables() %>%
   filter(.variable %in% unburnt.vars) %>%
   mutate(.variable = gsub("b_propgreat10yrsunburnt500mtransect_scale","",.variable))  %>%
-  left_join(var.lookup, by='.variable') 
+  left_join(var.lookup, by='.variable') %>% mutate(Response = "Prop Unburnt")
 
 severe.coef = best_sem %>%
   tidy_draws() %>%
   gather_variables() %>%
   filter(.variable %in% severe.vars) %>%
   mutate(.variable = gsub("b_propseveretransect_scale","",.variable))  %>%
-  left_join(var.lookup, by='.variable') 
+  left_join(var.lookup, by='.variable') %>% mutate(Response = "Prop Burnt Severely")
 
 bait.coef = best_sem %>%
   tidy_draws() %>%
   gather_variables() %>%
   filter(.variable %in% bait.vars) %>%
   mutate(.variable = gsub("b_scaleBaitIntensityTransectTwelve_scale","",.variable)) %>%
-  left_join(var.lookup, by='.variable') 
+  left_join(var.lookup, by='.variable') %>% mutate(Response = "Fox Baiting Intensity")
 
 ndvi.coef = best_sem %>%
   tidy_draws() %>%
   gather_variables() %>%
   filter(.variable %in% ndvi.vars) %>%
   mutate(.variable = gsub("b_scalemeansmNDVI_scale","",.variable))  %>%
-  left_join(var.lookup, by='.variable') 
+  left_join(var.lookup, by='.variable') %>% mutate(Response = "Mean NDVI")
 
 ndvianom.coef = best_sem %>%
   tidy_draws() %>%
   gather_variables() %>%
   filter(.variable %in% ndvianom.vars) %>%
   mutate(.variable = gsub("b_scalendvimonthlyanomaly_scale","",.variable))  %>%
-  left_join(var.lookup, by='.variable') 
+  left_join(var.lookup, by='.variable') %>% mutate(Response = "NDVI Anomaly")
 
+coefs = rbind(woylie.coef, chuditch.coef, koomal.coef, quenda.coef, recentfire.coef, multiburn.coef, firediv.coef, 
+              unburnt.coef, severe.coef, bait.coef, ndvi.coef, ndvianom.coef)
+coef.summary = coefs %>% group_by(Response, Label, Group) %>% 
+  summarise(Mean = mean(.value), 
+           LCI = quantile(.value, probs=0.05), 
+           UCI = quantile(.value, probs=0.95))
+
+#write.csv(coef.summary, "~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/_Projects/UpperWarrenSEM/Outputs/sem.coef.summary.csv")
+
+```
+
+### Plot Grids 
+```{r}
 plot.estimates = function(coef.data){
   plot.dat = coef.data
   pal = RColorBrewer::brewer.pal(9, "GnBu")[5:9]
@@ -587,10 +677,10 @@ plot.estimates = function(coef.data){
   plot.out = plot.dat %>%
     mutate(Label = factor(Label, levels = label.order$Label)) %>%
     ggplot(aes(y = Label, x =.value, fill=Group)) +
-    stat_interval() + stat_pointinterval(.width = c(0.80, 0.95)) + geom_vline(xintercept=0,linetype='dashed') + 
+    stat_pointinterval(.width = c(0.95)) + geom_vline(xintercept=0,linetype='dashed') + 
     scale_color_manual(values = pal) +
     theme_cowplot() +  theme(axis.text=element_text(size=10), axis.title=element_text(size=12)) + 
-    xlab("Posterior Distributions") + ylab("Predictor") + theme(legend.position = "none")
+    xlab("Posterior Estimates") + ylab("Predictor") + theme(legend.position = "none")
   plot.out
 }
 
@@ -608,13 +698,69 @@ i = plot.estimates(severe.coef)
 j = plot.estimates(bait.coef)
 k = plot.estimates(ndvi.coef)
 l = plot.estimates(ndvianom.coef)
+
+spp.covs.plot = cowplot::plot_grid(a,b,c,d,labels=c("a) Woylie", "b) Chuditch", "c) Koomal", "d) Quenda"), align='h', label_y=1.02)
+
+ggsave("SppCovsFig.pdf", plot=spp.covs.plot,
+       path="~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/_Projects/UpperWarrenSEM/Outputs", 
+       scale=1.5,width=7, height=4.5, units='in',dpi=300)
+
+
+env.covs.plot = cowplot::plot_grid(e,f,g,h,i,j,k,l, labels=c("a) Recent Fire", "b) MultiBurn","c) Fire Diversity", 
+                                                             "d) >10 Years Unburnt", "e) Severe Fire","f) Baiting", 
+                                                             "g) Productivity (NDVI)", "h) NDVI Anomaly"), 
+                                   ncol=3, align ='hv', hjust=0, label_y=1.02)
+
+
+ggsave("EnvCovsFig.pdf", plot=env.covs.plot,
+       path="~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/_Projects/UpperWarrenSEM/Outputs", 
+       scale=2,width=7, height=3.5, units='in',dpi=300)
 ```
 
-### Plot Grids 
+### Better Plots
 ```{r}
-cowplot::plot_grid(a,b,c,d,labels=c("a) Woylie", "b) Chuditch", "c) Koomal", "d) Quenda"), align='h')
+library(RColorBrewer)
+library(cowplot)
+coefs = rbind(woylie.coef, chuditch.coef, koomal.coef, quenda.coef)
+coef.summary = coefs %>% group_by(Response, Label, Group) %>% 
+  summarise(Mean = mean(.value), 
+           LCI = quantile(.value, probs=0.05), 
+           UCI = quantile(.value, probs=0.95))
 
-cowplot::plot_grid(e,f,g,h,i,j,k,l, labels=c("e) Recent Fire", "f) MultiBurn","g) Fire Diversity", "h) >10 Years Unburnt", "i) Severe Fire","j) Baiting", "k) Productivity (NDVI)", "l) NDVI Anomaly"), ncol=3, align ='hv', hjust=0)
+coef.plot = ggplot(coef.summary) + 
+  geom_pointinterval(aes(x=Label, y=Mean, ymin=LCI, ymax=UCI)) + 
+  geom_hline(yintercept=0,linetype='dashed') + xlab("Covariate") + ylab("Posterier Estimate") +
+  facet_wrap(~Response, ncol=1, scales='free_y', strip.position = 'right')+ theme_cowplot() +
+  theme(strip.background = element_rect(fill="white")) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 
+
+fire.coefs = rbind(recentfire.coef, multiburn.coef, firediv.coef, unburnt.coef, severe.coef)
+fire.coef.summary = fire.coefs %>% group_by(Response, Label, Group) %>% 
+  summarise(Mean = mean(.value), 
+           LCI = quantile(.value, probs=0.05), 
+           UCI = quantile(.value, probs=0.95))
+
+fire.coef.plot = ggplot(fire.coef.summary) + 
+  geom_pointinterval(aes(x=Label, y=Mean, ymin=LCI, ymax=UCI)) + 
+  geom_hline(yintercept=0,linetype='dashed') + xlab("Covariate") + ylab("Posterier Estimate") +
+  facet_wrap(~Response, ncol=2, scales='free_y', strip.position = 'right')+ theme_cowplot() +
+  theme(strip.background = element_rect(fill="white")) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+env.coefs = rbind(bait.coef, ndvi.coef, ndvianom.coef)
+env.coef.summary = env.coefs %>% group_by(Response, Label, Group) %>% 
+  summarise(Mean = mean(.value), 
+           LCI = quantile(.value, probs=0.05), 
+           UCI = quantile(.value, probs=0.95))
+
+env.coef.plot = ggplot(env.coef.summary) + 
+  geom_pointinterval(aes(x=Label, y=Mean, ymin=LCI, ymax=UCI)) + 
+  geom_hline(yintercept=0,linetype='dashed') + xlab("Covariate") + ylab("Posterier Estimate") +
+  facet_wrap(~Response, ncol=1, scales='free_y', strip.position = 'right')+ theme_cowplot() +
+  theme(strip.background = element_rect(fill="white")) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+env.plot = cowplot::plot_grid(fire.coef.plot, env.coef.plot, rel_widths = c(2.5,1))
 
 ```

@@ -25,7 +25,7 @@ std.crs = st_crs(32750)
 ## Project Mask
 
 ```{r}
-project.area = read_sf("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Boundaries/WarrenJarrah_projectboundary.shp")
+project.area = read_sf("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Boundaries/WarrenJarrah_projectboundary.shp")
 project.area = st_transform(project.area, std.crs)
 
 r = raster(extent(project.area), res = 50)
@@ -39,7 +39,7 @@ crs(mask) <- "+proj=utm +zone=50 +south +datum=WGS84 +units=m +no_defs"
 
 ## Transect Shapes
 ```{r}
-trap_points = read_sf("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Trapping/trap_points_compiled.shp")
+trap_points = read_sf("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Trapping/trap_points_compiled.shp")
 
 # Buffer around each transect by 200m, 500m and 1km 
 transect_buffer_200m = trap_points %>% st_transform(std.crs) %>% st_buffer(dist=200) %>% group_by(TRANSECT) %>% summarise()
@@ -54,7 +54,7 @@ transects = st_drop_geometry(transect_buffer_200m)
 
 # Build Covariate Table
 ```{r}
-trap.points = read.csv("~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Processing/trap.data.csv")
+trap.points = read.csv("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Processing/trap.data.csv")
 covariates.table = trap.points %>% 
   drop_na(Start) %>% dplyr::select(-X.1) %>%
   mutate(month = month(Start), year = year(Start)) %>% 
@@ -80,7 +80,7 @@ trap.dates = unique(covariates.table$TRAP_START)
 
 ## Fire History
 ```{r}
-firehistory = read_sf("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/FireHistoryDec18_WarrenJarrah.shp")
+firehistory = read_sf("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/FireHistoryDec18_WarrenJarrah.shp")
 firehistory = st_transform(firehistory, std.crs)
 firehistory$FIH_DATE1 = as.POSIXct(firehistory$FIH_DATE1)
 fire.list = list()
@@ -107,7 +107,7 @@ for (i in 1:length(trap.dates)) {
   tsf_category_raster[tsf_category_raster > 10 & tsf_category_raster < 21] <- 3
   tsf_category_raster[tsf_category_raster > 20] <- 4
   
-  fireage.cat.diversity = landscapemetrics::sample_lsm(as.integer(tsf_category_raster), y=transect_buffer_500m, what='lsm_l_shdi')
+  fireage.cat.diversity = landscapemetrics::sample_lsm(as.integer(tsf_category_raster), y=transect_buffer_550m, what='lsm_l_shdi')
   tsf.cat.shannon.diversity = fireage.cat.diversity$value
   
   firehistory_temp$Dummy = 1
@@ -156,8 +156,13 @@ covariates.table = left_join(covariates.table, fire.covariates, by=c("TRANSECT",
 ```{r}
 # Calculate fire severity statistics for Upper Warren
 mga50 <- "+proj=utm +zone=50 +south +datum=WGS84 +units=m +no_defs"
-firehist <- st_read("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Fire Severity prep/For Analysis/firehistory_upperwarren.shp")%>%
+firehist <- st_read("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Fire Severity prep/For Analysis/firehistory_upperwarren.shp")%>%
   st_transform(mga50)
+# Create mask of severity study area
+mask = raster("~/Dropbox/Billy/_Research/Upper Warren Fire Severity/Upper_Warren_GIS/Fire_severity_allClass_sum_Warren_1995to2021_2021-11-08_z50.tif")
+mask[mask>0] <- 0
+
+
 dates = firehist %>% select(OBJECTID, FIH_DATE1) %>% mutate(OBJECTID = as.character(OBJECTID)) %>% st_drop_geometry()
 
 # Function
@@ -169,8 +174,8 @@ severity_stats = function(polyint, firehist, reference.date, lagyears){
   y = lagyears
 
   # Read in severity layers
-  tlist <- data.frame(name = list.files("~/Dropbox/Upper Warren Fire Severity/CBI_maps", pattern = "tif"),
-                      path = list.files("~/Dropbox/Upper Warren Fire Severity/CBI_maps", pattern = "tif", full=TRUE))
+  tlist <- data.frame(name = list.files("~/Dropbox/Billy/_Research/Upper Warren Fire Severity/CBI_maps", pattern = "tif"),
+                      path = list.files("~/Dropbox/Billy/_Research/Upper Warren Fire Severity/CBI_maps", pattern = "tif", full=TRUE))
   tlist <- tlist %>% 
     mutate(fnum = str_split_fixed(name, "_", 7)[,3]) %>%
     left_join(dates, by=c('fnum'='OBJECTID'))
@@ -251,7 +256,7 @@ Takes a few min to run
 
 ```{r}
 
-harvest.history = read_sf("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/SilviculturalOperations_WarrenJarrah.shp")
+harvest.history = read_sf("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/SilviculturalOperations_WarrenJarrah.shp")
 harvest.history = st_transform(harvest.history, std.crs)
 
 harvest.history$YEAR= ifelse(harvest.history$Year == "1930-39", "1939",
