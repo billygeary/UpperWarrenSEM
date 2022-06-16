@@ -471,7 +471,7 @@ model.data.out = foreach(l=1:length(model.files$Species)) %dopar% {
 
 #stopCluster(cl)
 
-##### Step 4: Check Models ####
+#### Step 4: Check Models ####
 
 models.check = data.frame(Name = sapply(model.data.out, function(x) {x$modfile}),
                           Species = sapply(model.data.out, function(x) {x$Species}),
@@ -483,7 +483,7 @@ models.check = data.frame(Name = sapply(model.data.out, function(x) {x$modfile})
 
 models.check
 
-#### Step 5: Plot Trajectories
+#### Step 5: Plot Trajectories ####
 mod_out = model.data.out[[10]]
 
 site.means = data.frame(mod_out$mean$N)
@@ -534,7 +534,7 @@ cor.test(abundances$Abundance,abundances$Counts)
 plot(abundances$Abundance~abundances$Counts)
 
 
-#### Step 5: Save abundance predictions for each species' best model
+#### Step 6: Save abundance predictions for each species' best model #### 
 model.data.out = list(best.woylie = model.data.out[[3]], 
                       best.koomal = model.data.out[[9]], 
                       best.chuditch = model.data.out[[12]])

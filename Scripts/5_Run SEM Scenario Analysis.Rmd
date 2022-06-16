@@ -331,22 +331,20 @@ scenario_plot = function(input.data, species,ylab, ymax){
     geom_hline(yintercept = median.base, linetype = 'dashed') + 
     ggdist::stat_halfeye(adjust = .5, width = .75,.width = 0,justification = -.2,point_colour = NA, alpha=0.7) + 
     geom_boxplot(width = .25, outlier.shape = NA, alpha = 0.7) +
-    #gghalves::geom_half_point(aes(colour = Scenario), side = "l", range_scale = .4,alpha = .3) +
-    #coord_cartesian(xlim = c(1.2, NA), clip = "off") +
     scale_colour_manual(values = pal) + scale_fill_manual(values = pal) +
-    ylab(ylab) + xlab("Scenario") +
+    ylab(ylab) + xlab("Scenario") + ylim(c(0,ymax)) +
     cowplot::theme_cowplot() + theme(legend.position = "none") + coord_flip()
   plot
 }
 
-a = scenario_plot(combined_scenarios, "Woylie", "Predicted Abundance")
-b = scenario_plot(combined_scenarios, "Chuditch", "Predicted Abundance")
-c = scenario_plot(combined_scenarios, "Koomal", "Predicted Abundance")
-d = scenario_plot(combined_scenarios, "Quenda", "Predicted Occurrence")
+a = scenario_plot(combined_scenarios, "Woylie", "Predicted Abundance", 150)
+b = scenario_plot(combined_scenarios, "Chuditch", "Predicted Abundance", 40)
+c = scenario_plot(combined_scenarios, "Koomal", "Predicted Abundance", max(combined_scenarios$Koomal))
+d = scenario_plot(combined_scenarios, "Quenda", "Predicted Occurrence", max(combined_scenarios$Quenda))
 
 plot.out = cowplot::plot_grid(a,b,c,d,labels=c("a) Woylie", "b) Chuditch", "c) Koomal", "d) Quenda"), align='h')
 
-ggsave("ScenarioAnalysisFig.pdf", plot=plot.out,
+ggsave("Fig4_ScenarioAnalysis.pdf", plot=plot.out,
        path="~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/_Projects/UpperWarrenSEM/Outputs", 
        scale=1.7,width=7, height=4.5, units='in',dpi=300)
 
