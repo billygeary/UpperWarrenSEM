@@ -29,8 +29,6 @@ trap.sessions = data %>%
   group_by(TRANSECT, GroupDate) %>% summarise()
 
 ggplot(trap.sessions) + geom_tile(aes(x=GroupDate, y=TRANSECT)) + theme_bw() + xlab("Year")
-
-(length(trap.sessions$TRANSECT) * 4 * 50)
 ```
 ## Transform/clean data
 

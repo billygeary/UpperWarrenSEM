@@ -756,9 +756,6 @@ road.density = data.frame(TRANSECT = gsub("\\s|\\(Universal)","",transect_buffer
 covariates.table = left_join(covariates.table, road.density, by=c("TRANSECT"))
 ```
 
-## Topography
-https://ecat.ga.gov.au/geonetwork/srv/eng/catalog.search#/metadata/123119
-
 ## Long term rainfall
 Read in the long term mean preciptitation
 Subtract the 12 month lags to create an proportional variation
@@ -776,12 +773,6 @@ covariates.table$rain.anomaly.twelve = (covariates.table$Rain.TwelveMonths - cov
 ```
 
 ## Vegetation Type
-
-depression and swamps are crap
-midslopes are the good stuff
-uplands can be a bit grainy, 
-quenda depressions
-chuditch whatever
 
 ```{r}
 veg.complex =  read_sf("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/Vegetation_Complexes_WarrenJarrah.shp")
@@ -812,7 +803,7 @@ covariates.table = left_join(covariates.table, veg.complex.transect.prop, by = c
 
 # Fauna Abundance
 ```{r}
-load("~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Processing/transect_bestmodels_abundancesforSEM_23072021.RData")
+load("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/_Projects/UpperWarrenSEM/Data_Clean/transect_bestmodels_abundancesforSEM_23072021.RData")
 
 # Woylies
 woylies = abundance.list$woylie

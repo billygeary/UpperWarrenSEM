@@ -6,3 +6,5 @@ Archive_Scripts/
 Data_Processing/
 Documents/
 .Rproj.user
+.DS_Store
+Data_Clean/Old
