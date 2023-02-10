@@ -371,11 +371,3 @@ trap.points.data = left_join(trap.points.data, quenda, by=c("TRANSECT", "SiteID"
 trap.points.data = left_join(trap.points.data, koomal, by=c("TRANSECT", "SiteID", "Session", "X","Y","Effort"))
 
 #write.csv(trap.points.data, "Data_Processing/trap.data.csv")
-
-
-
-
-#### Prep for occ model
-temp = left_join(trap.points.df, period.lookup, by=c("Session" = "SessionID"))
-temp = temp %>% dplyr::select(X,Y,TRANSECT,SiteID, PeriodID, Session, Effort)
-

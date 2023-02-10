@@ -63,10 +63,8 @@ covariates.table = trap.points %>%
   filter(!(TRANSECT == "Keninup" & Session %in% c(36,37,37,38,39,41,42,44,45,53))) %>% # Filter out extra Keninup Sessions
   filter(!(TRANSECT == "Warrup" & Session == 53)) %>% # Filter out extra Warrup Session
   filter(!(TRANSECT == 'Moopinup' & Session == 69)) %>%
-  
-  
   group_by(TRANSECT, TRAP_START, PeriodID, JulianDate, month, year) %>%
-  summarise(Trap.Effort = sum(Trap.Effort),
+  summarise(Effort = sum(Effort),
             Woylie_Caps = sum(Woylie_Caps),
             Chuditch_Caps = sum(Chuditch_Caps),
             Quenda_Caps = sum(Quenda_Caps),
@@ -163,7 +161,7 @@ mask = raster("~/Dropbox/Billy/_Research/Upper Warren Fire Severity/Upper_Warren
 mask[mask>0] <- 0
 
 
-dates = firehist %>% select(OBJECTID, FIH_DATE1) %>% mutate(OBJECTID = as.character(OBJECTID)) %>% st_drop_geometry()
+dates = firehist %>% dplyr::select(OBJECTID, FIH_DATE1) %>% mutate(OBJECTID = as.character(OBJECTID)) %>% st_drop_geometry()
 
 # Function
 severity_stats = function(polyint, firehist, reference.date, lagyears){
@@ -177,7 +175,7 @@ severity_stats = function(polyint, firehist, reference.date, lagyears){
   tlist <- data.frame(name = list.files("~/Dropbox/Billy/_Research/Upper Warren Fire Severity/CBI_maps", pattern = "tif"),
                       path = list.files("~/Dropbox/Billy/_Research/Upper Warren Fire Severity/CBI_maps", pattern = "tif", full=TRUE))
   tlist <- tlist %>% 
-    mutate(fnum = str_split_fixed(name, "_", 7)[,3]) %>%
+    mutate(fnum = stringr::str_split_fixed(name, "_", 7)[,3]) %>%
     left_join(dates, by=c('fnum'='OBJECTID'))
   
   # Set up output df
@@ -234,7 +232,7 @@ sev.test.out.df = do.call('rbind', sev.test)
 
 sev.out = sev.test.out.df %>% 
   rename(TRANSECT = "Transect", TRAP_START = "Date") %>% 
-  select(TRANSECT, TRAP_START, prop_burnt_transect, prop_moderate_transect, 
+  dplyr::select(TRANSECT, TRAP_START, prop_burnt_transect, prop_moderate_transect, 
          prop_severe_transect, severity_diversity) %>% 
   mutate(TRANSECT = gsub("\\s|\\(Universal)","",TRANSECT)) 
 
@@ -292,7 +290,8 @@ for (i in 1:length(trap.dates)) {
   prop.20yrs.1km.transect = exact_extract(tsh_raster, transect_buffer_1km, fun=function(x, coverage_fraction){length(subset(x, x < 20))/length(x)},progress=FALSE)
   prop.great20yrs.1km.transect = exact_extract(tsh_raster, transect_buffer_1km, fun=function(x, coverage_fraction){length(subset(x, x > 20))/length(x)},progress=FALSE)
   
-  harvestage.diversity = landscapemetrics::sample_lsm(as.integer(tsh_raster), y=transect_buffer_500m, what='lsm_l_shdi')
+  harvestage.diversity = landscapemetrics::sample_lsm(as.integer(tsh_raster),
+                                                      y=transect_buffer_550m, what='lsm_l_shdi')
   tsh.shannon.diversity = harvestage.diversity$value
  
 
@@ -339,13 +338,13 @@ bait.crs = st_crs(20350)
 trap_points = st_transform(trap_points, crs=bait.crs)
 # Read in baiting spatial data
 # First do Manjimup Western Shield ground baiting
-balban = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Balban.shp")
-camelar = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Camelar.shp")
-keninup = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Keninup.shp")
-kingston = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Kingston.shp")
+balban = read_sf("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Balban.shp")
+camelar = read_sf("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Camelar.shp")
+keninup = read_sf("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Keninup.shp")
+kingston = read_sf("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Kingston.shp")
 #perupcore = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/New Perup_Core.shp")
-perupcore = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Perup Core.shp")
-perup_yendicup = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Perup_Yendicup_Baiting.shp")
+perupcore = read_sf("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Perup Core.shp")
+perup_yendicup = read_sf("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/Perup_Yendicup_Baiting.shp")
 
 perupcore = perupcore  %>% st_union() %>% st_as_sf()
 balban = balban %>% st_transform(bait.crs) %>% st_union() %>% st_buffer(dist=2500) %>% st_as_sf() 
@@ -359,31 +358,31 @@ perup_whole = st_union(balban, camelar)
 perup_whole = st_union(perup_whole, keninup)
 
 # Add in extra Western Shield ground baiting (Denbarker & Lake Muir)
-den.muir = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Predator data/BaitingData Request/baiting data from Marika 2021/Baiting History/Denbarker.Lake Muir 15.08.19.shp")
+den.muir = read_sf("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Predator data/BaitingData Request/baiting data from Marika 2021/Baiting History/Denbarker.Lake Muir 15.08.19.shp")
 den.muir= den.muir %>% st_set_crs(bait.crs) %>% st_union()  %>% st_buffer(dist=2500) %>% st_as_sf() 
 
 # Add in De Longraft road pre-October 2012
 # Discussed with AW and MM on 20/04/2021
 # Quarterly baiting at 50 baits per quarter estimate
-delandgraaft = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Predator data/BaitingData Request/baiting data from Marika 2021/Baiting History/deLandgrafft.shp")
+delandgraaft = read_sf("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Predator data/BaitingData Request/baiting data from Marika 2021/Baiting History/deLandgrafft.shp")
 delandgraaft = delandgraaft %>% st_transform(bait.crs) %>% st_union() %>% st_buffer(dist=2500) %>% st_as_sf() 
 
 # Add in Translocations
-translocations = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Predator data/BaitingData Request/baiting data from Marika 2021/Baiting History/Translocations.shp")
+translocations = read_sf("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Predator data/BaitingData Request/baiting data from Marika 2021/Baiting History/Translocations.shp")
 translocations = translocations %>% st_transform(bait.crs) %>% st_buffer(dist=2500) %>% st_as_sf() 
 warrup_trans = translocations %>% filter(Zone =="Warrup") %>% st_union() %>% st_as_sf()
 yendicup_trans = translocations %>% filter(Zone =="Yendicup") %>% st_union() %>% st_as_sf()
 walcott_trans = translocations %>% filter(Zone =="Walcott") %>% st_union() %>% st_as_sf()
 
 # Last do Western Shield Aerial baiting for three cells
-aerial = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/WesternShield Flight Cells.shp")
+aerial = read_sf("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Baiting/WesternShield Flight Cells.shp")
 manjimup = aerial %>% st_transform(bait.crs) %>% filter(CELL_NAME == "Manjimup") %>% st_union() %>% st_as_sf() 
 shannon = aerial %>% st_transform(bait.crs) %>% filter(CELL_NAME == "Shannon") %>% st_union() %>% st_as_sf() 
 denbarker = aerial %>% st_transform(bait.crs) %>% filter(CELL_NAME == "Denbarker") %>% st_union() %>% st_as_sf() 
 
 
 # Baiting count data across whole study region
-baits = read.csv("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Predator data/predator.baiting.combined_BG_210415.csv")
+baits = read.csv("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Predator data/predator.baiting.combined_BG_210415.csv")
 baits = baits %>% filter(Purpose != "FPC Fox Baiting") %>%
   mutate(StartDate = as.Date(StartDate, format= "%d/%m/%y"))
 
@@ -537,7 +536,7 @@ covariates.table = left_join(covariates.table, bait.data.transect, by = c("TRANS
 
 ## Rainfall
 ```{r}
-rain.rasters = list.files("~/Dropbox/_Research/data/spatial/climate grids/rainfall", pattern=".grid", full.names = TRUE)
+rain.rasters = list.files("~/Dropbox/Billy/_Research/data/spatial/climate grids/rainfall", pattern=".grid", full.names = TRUE)
 rain.stack = stack(rain.rasters)
 crs(rain.stack) <- "+proj=longlat +datum=WGS84"
 
@@ -593,7 +592,7 @@ covariates.table = left_join(covariates.table, rain.out.df, by = c("TRANSECT", "
 
 ## Productivity
 ```{r}
-prod.rasters = intersect(list.files("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/NDVI", pattern=".tif$", full.names = TRUE), list.files("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/NDVI", pattern="MOD13A3.006__1_km_monthly_NDVI", full.names = TRUE))
+prod.rasters = intersect(list.files("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/NDVI", pattern=".tif$", full.names = TRUE), list.files("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/NDVI", pattern="MOD13A3.006__1_km_monthly_NDVI", full.names = TRUE))
 
 prod.stack =stack(prod.rasters)
 
@@ -654,7 +653,7 @@ covariates.table = left_join(covariates.table, ndvi.data, by = c("TRANSECT", "TR
 
 ## Pasture
 ```{r}
-load("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/si50_woody_geo/pasture.stack.30052021.RData")
+load("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/si50_woody_geo/pasture.stack.30052021.RData")
 crs(pasture.stack) <- CRS('+init=EPSG:4326')
 
 prop.pasture.list = list()
@@ -726,7 +725,7 @@ covariates.table = left_join(covariates.table, dist.pasture.out, by =c("TRANSECT
 
 ## Planned Burn Assets
 ```{r}
-assets = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/Assets_PlannedBurns.shp")
+assets = read_sf("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/Assets_PlannedBurns.shp")
 st_crs(assets) <- "+proj=longlat +ellps=GRS80 +no_defs"
 mask.latlong = projectRaster(mask, crs="+proj=longlat")
 assets = as_Spatial(assets) 
@@ -742,7 +741,7 @@ covariates.table = left_join(covariates.table, distance.assets, by=c("TRANSECT")
 
 ## Road Density
 ```{r}
-roads = read_sf("~/Dropbox/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/TGDB_Roads_Eradicat.shp")
+roads = read_sf("~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/TGDB_Roads_Eradicat.shp")
 st_crs(roads) = "+proj=longlat +datum=WGS84"
 roads = st_transform(roads, std.crs)
 
@@ -760,7 +759,7 @@ covariates.table = left_join(covariates.table, road.density, by=c("TRANSECT"))
 Read in the long term mean preciptitation
 Subtract the 12 month lags to create an proportional variation
 ```{r}
-annual.prec = raster("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/Climate Data/rainan 4.txt")
+annual.prec = raster("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/Climate Data/rainan 4.txt")
 crs(annual.prec) <- "+proj=longlat +datum=WGS84"
 
 transect.annual.prec = data.frame(TRANSECT = transect_buffer_200m$TRANSECT,
@@ -775,7 +774,7 @@ covariates.table$rain.anomaly.twelve = (covariates.table$Rain.TwelveMonths - cov
 ## Vegetation Type
 
 ```{r}
-veg.complex =  read_sf("~/Dropbox/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/Vegetation_Complexes_WarrenJarrah.shp")
+veg.complex =  read_sf("~/Dropbox/Billy/_Research/_PhD/07_UpperWarren_WA/data/from Adrian Feb19/Spatial data/Covariates/Vegetation_Complexes_WarrenJarrah.shp")
 
 veg.complex.transect = veg.complex %>% st_transform(std.crs) %>% 
   st_intersection(transect_buffer_500m)
@@ -841,7 +840,7 @@ covariates.table$Quenda_PA = ifelse(covariates.table$Quenda_Caps > 0, 1, covaria
 ## Save Table
 ```{r}
 
-write.csv(covariates.table, "~/Dropbox/_research/_PhD/07_UpperWarren_WA/_Projects/SSM_SEM/Data_Clean/transect.sem.data.Nov2021.csv")
+write.csv(covariates.table, "~/Dropbox/Billy/_research/_PhD/07_UpperWarren_WA/_Projects/UpperWarrenSEM/Data_Clean/transect.sem.data.Dec2022.csv")
 
 ```
 
