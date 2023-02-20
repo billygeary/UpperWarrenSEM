@@ -26,7 +26,9 @@ trap.sessions = data %>%
   mutate(GroupDate = ifelse(lubridate::month(TRAP_START) > 6, paste0("01/07/",lubridate::year(TRAP_START)),
                             paste0("01/01/",lubridate::year(TRAP_START)))) %>%
   mutate(GroupDate = as.Date(GroupDate, format = "%d/%m/%Y")) %>%
-  group_by(TRANSECT, GroupDate) %>% summarise()
+  group_by(TRANSECT, GroupDate) %>% summarise() 
+
+trap.sessions = trap.sessions %>% mutate(TRANSECT = factor(TRANSECT, levels = sort(unique(trap.sessions$TRANSECT), decreasing = TRUE)))
 
 ggplot(trap.sessions) + geom_tile(aes(x=GroupDate, y=TRANSECT)) + theme_bw() + xlab("Year")
 ```
